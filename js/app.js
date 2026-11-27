@@ -1127,6 +1127,7 @@ function renderAuth() {
     <h1><img src="icon.svg" alt="">DuoCal</h1>
     <p class="muted">${joining ? 'Your partner invited you. Sign in with the Gmail they shared with.' : 'One calendar for the two of you, kept in your own Google Calendar.'}</p>
     <button class="btn primary" id="g-in" style="width:100%;padding:12px;font-size:16px">Sign in with Google</button>
+    ${GAuth.isDesktop ? '<p class="small" style="margin-top:10px">Your normal browser opens for the Google sign-in. Come back here when it says "Signed in".</p>' : ''}
     <p class="muted small" style="margin-top:14px">DuoCal never sees your password. Google handles sign-in, and your data stays in your Google calendars. Google may say "hasn't verified this app": tap <b>Advanced → Go to DuoCal</b>. It's your own app.</p>
   </div></div>`;
   $('#g-in').onclick = () => GAuth.signIn({ hint: localStorage.getItem('duocal.lastEmail') || undefined });
@@ -1284,6 +1285,7 @@ addEventListener('resize', () => { if (phone() !== wasPhone) { wasPhone = phone(
   if (window.top !== window.self) { document.body.innerHTML = ''; return; }
   applyTheme();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js', { scope: './' }).catch(() => { });
+  if (GAuth.desktopInit) await GAuth.desktopInit(); // DuoCal for Windows: ask the app for a pass
   const r = await GAuth.handleRedirect();
   if (r && r.error) {
     const msg = { access_denied: 'Google sign-in was cancelled.', interaction_required: '', login_required: '', consent_required: '', scope: 'Please allow DuoCal to see and edit your calendars (tick the box).', audience: 'That sign-in was not for DuoCal.', state: 'That sign-in link was old or not started here. Try again.' }[r.error];

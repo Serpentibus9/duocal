@@ -15,6 +15,15 @@
   const SCOPE = 'openid email https://www.googleapis.com/auth/calendar';
   const KEY = 'duocal.gtoken', STATE = 'duocal.oauthState';
   const redirectUri = () => location.origin + location.pathname.replace(/index\.html$/, '');
+  // Inside DuoCal for Windows, sign-in is done by the app itself (Google requires desktop
+  // apps to use the normal browser). The page only receives short-lived passes from it.
+  const D = root.duocalDesktop && root.duocalDesktop.auth;
+  let cached = null;
+  async function desktopInit() {
+    if (!D) return;
+    cached = await D.get();
+    setInterval(async () => { if (!cached || cached.exp - Date.now() < 10 * 60e3) { const t = await D.get(); if (t) cached = t; } }, 4 * 60e3);
+  }
 
   function randomString(bytes = 32) {
     const a = new Uint8Array(bytes); crypto.getRandomValues(a);
@@ -27,6 +36,10 @@
 
   // silent: no Google screens if you're already signed in to Google on this device
   function signIn({ silent = false, hint } = {}) {
+    if (D) { // Windows app: renew quietly, or open the normal browser once
+      D.signIn(hint).then(t => { if (t) { cached = t; location.reload(); } else alert('Not signed in. Please try again.'); });
+      return;
+    }
     if (!CFG.clientId) { alert('DuoCal is not set up yet: the Google Client ID is missing in js/config.js.'); return; }
     const state = randomString();
     const prev = JSON.parse(sessionStorage.getItem(STATE) || 'null');
@@ -41,6 +54,7 @@
 
   // Called once at start-up. Returns null (nothing to do) or { ok | error, join, email }.
   async function handleRedirect() {
+    if (D) return null;
     const hash = location.hash;
     if (!/[#&](access_token|error)=/.test(hash)) return null;
     const h = new URLSearchParams(hash.slice(1));
@@ -65,13 +79,15 @@
   }
 
   function current() {
+    if (D) return cached && cached.exp > Date.now() ? cached : null;
     const t = JSON.parse(sessionStorage.getItem(KEY) || 'null');
     return t && t.exp > Date.now() ? t : null;
   }
   async function signOut({ revoke = false } = {}) {
+    if (D) { await D.signOut(revoke); cached = null; return; }
     const t = JSON.parse(sessionStorage.getItem(KEY) || 'null');
     if (revoke && t) await fetch('https://oauth2.googleapis.com/revoke?token=' + encodeURIComponent(t.token), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }).catch(() => { });
     sessionStorage.removeItem(KEY);
   }
-  root.GAuth = { signIn, handleRedirect, current, signOut, appUrl: redirectUri };
+  root.GAuth = { signIn, handleRedirect, current, signOut, appUrl: redirectUri, desktopInit, isDesktop: !!D };
 })(window);
