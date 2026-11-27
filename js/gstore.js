@@ -429,7 +429,7 @@
     const me = ms.find(m => m.id === S.me) || { id: S.me, email: S.me, name: S.me.split('@')[0], settings: cleanSettings({}) };
     const recs = dataRecords();
     return {
-      me: { id: me.id, name: me.name, email: me.email, settings: me.settings },
+      me: { id: me.id, name: me.name, email: me.email, settings: me.settings, trust: me.trust || [] },
       members: ms.map(m => ({ id: m.id, name: m.name, email: m.email, settings: m.settings, trust: m.trust })),
       household: { id: S.usId, name: S.usName, invite: inviteLink(), full: ms.length >= 2 },
       events: [...usEvents(), ...extraEvents()], alarms: recs.alarms, counters: recs.counters, sleepLogs: recs.sleepLogs,
