@@ -2,9 +2,9 @@
 // Only DuoCal's own files are cached. Google traffic (your calendar data and
 // sign-in) is NEVER cached or touched here.
 // Updates: the network is tried first, so a new version shows up on the next open.
-const CACHE = 'duocal-v5';
-const FILES = ['./', 'index.html', 'styles.css', 'icon.svg', 'icon-512.png', 'manifest.webmanifest',
-  'js/config.js', 'js/validate.js', 'js/recur.js', 'js/ics.js', 'js/export.js', 'js/gauth.js', 'js/gstore.js', 'js/app.js', 'vendor/exceljs.min.js'];
+const CACHE = 'duocal-v6';
+const FILES = ['./', 'index.html', 'styles.css', 'icon.svg', 'icon-512.png', 'apple-touch-icon.png', 'manifest.webmanifest',
+  'js/config.js', 'js/validate.js', 'js/recur.js', 'js/ics.js', 'js/export.js', 'js/importers.js', 'js/gauth.js', 'js/gstore.js', 'js/app.js', 'vendor/exceljs.min.js'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {

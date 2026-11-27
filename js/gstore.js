@@ -284,7 +284,8 @@
     if (v.error) v = validate('events', { ...raw, rrule: null, tz: null }, { partial: false });
     if (v.error) return null;
     const creator = String((g.creator && g.creator.email) || '').toLowerCase();
-    return { ...v.value, id: g.id, createdBy: memberIds.includes(creator) ? creator : null, updatedAt: g.updated, readOnly: !!readOnly, source: readOnly ? 'extra' : 'google' };
+    const editor = lower(p.duocalBy);
+    return { ...v.value, id: g.id, createdBy: memberIds.includes(creator) ? creator : null, updatedBy: memberIds.includes(editor) ? editor : (memberIds.includes(creator) ? creator : null), updatedAt: g.updated, readOnly: !!readOnly, source: readOnly ? 'extra' : 'google' };
   }
   function toGoogle(e) {
     const s = new Date(e.start), en = new Date(e.end), z = e.tz || deviceTz();
@@ -296,7 +297,7 @@
       end: e.allDay ? { date: en.toISOString().slice(0, 10) } : { dateTime: wallString(en, z), timeZone: z },
       colorId: TO_GCOLOR[e.color ?? 1] || '9',
       recurrence: e.rrule ? ['RRULE:' + e.rrule, ...exd.map(x => e.allDay ? `EXDATE;VALUE=DATE:${x.slice(0, 10).replace(/-/g, '')}` : `EXDATE;TZID=${z}:${wallString(new Date(x), z).replace(/[-:]/g, '')}`)] : [],
-      extendedProperties: { shared: { duocalFor: (e.forUsers || []).join(',').slice(0, 500), duocalRem: (e.reminders || []).join(','), duocalColor: String(e.color ?? 1) } },
+      extendedProperties: { shared: { duocalBy: S.me, duocalFor: (e.forUsers || []).join(',').slice(0, 500), duocalRem: (e.reminders || []).join(','), duocalColor: String(e.color ?? 1) } },
       // Google keeps reminders per person: this sets *mine*. My partner's app sets theirs.
       reminders: myReminders(e),
     };
@@ -315,13 +316,13 @@
       if (p.t === 'counter') {
         const s = parseGDate(g.start); if (!s) continue;
         const v = validate('counters', { title: g.summary || 'Counter', date: s.date.toISOString(), color: +p.color || 0 }, { partial: false });
-        if (!v.error) counters.push({ ...v.value, id: g.id });
+        if (!v.error) counters.push({ ...v.value, id: g.id, updatedBy: ms.includes(p.ed) ? p.ed : creatorOf(g), updatedAt: g.updated || null });
       } else if (p.t === 'sleep') {
         const s = parseGDate(g.start), e = parseGDate(g.end); if (!s || !e || !ms.includes(p.who)) continue;
         sleepLogs.push({ id: g.id, userId: p.who, start: s.date.toISOString(), end: p.open === '1' ? null : e.date.toISOString() });
       } else if (p.t === 'alarm') {
-        const v = validate('alarms', { time: p.time, label: g.summary || 'Alarm', days: String(p.days || '').split(',').filter(Boolean).map(Number), date: p.date || null, enabled: p.enabled === '1', snooze: +p.snooze || 9, forUser: p.forUser }, { partial: false });
-        if (!v.error && ms.includes(v.value.forUser)) alarms.push({ ...v.value, id: g.id, createdBy: ms.includes(p.by) ? p.by : null, _ev: p.ev || null });
+        const v = validate('alarms', { time: p.time, label: g.summary || 'Alarm', days: String(p.days || '').split(',').filter(Boolean).map(Number), date: p.date || null, enabled: p.enabled === '1', snooze: +p.snooze || 9, forUser: p.forUser, every: p.every || '' }, { partial: false });
+        if (!v.error && ms.includes(v.value.forUser)) alarms.push({ ...v.value, id: g.id, createdBy: ms.includes(p.by) ? p.by : null, updatedBy: ms.includes(p.ed) ? p.ed : (ms.includes(p.by) ? p.by : null), updatedAt: g.updated || null, _ev: p.ev || null });
       }
     }
     return { alarms, counters, sleepLogs };
@@ -389,7 +390,7 @@
       // 2) my alarms calendar = my enabled alarms + wake-up + bedtime
       const me = myMember(); if (!me) return;
       const want = new Map();
-      for (const a of dataRecords().alarms) if (a.forUser === S.me && a.enabled) want.set('a:' + a.id, withKey(alarmEventBody(a.label, a.time, a.days, a.date, 0, me.settings.tz), 'a:' + a.id));
+      for (const a of dataRecords().alarms) if (a.forUser === S.me && a.enabled) want.set('a:' + a.id, withKey(alarmEventBody(a.label, a.time, a.days, a.date, 0, me.settings.tz, a.every || ''), 'a:' + a.id));
       if (me.settings.wakeAlarm) want.set('wake', withKey(alarmEventBody('Wake up', me.settings.waketime, [0, 1, 2, 3, 4, 5, 6], null, 0, me.settings.tz), 'wake'));
       if (me.settings.bedtimeReminder > 0) want.set('bed', withKey(alarmEventBody('🌙 Bedtime', me.settings.bedtime, [0, 1, 2, 3, 4, 5, 6], null, me.settings.bedtimeReminder, me.settings.tz), 'bed'));
       const have = (await listAll(cal(S.myAlarmCal) + '/events', { singleEvents: 'false', maxResults: '2500', privateExtendedProperty: 'duocal=1' })).items;
@@ -402,19 +403,20 @@
       for (const w of want.values()) await gapi('POST', cal(S.myAlarmCal) + '/events', w);
     } finally { reconciling = false; }
   }
-  function alarmEventBody(label, time, days, date, alertBefore, tz) {
+  const EVERY_RULE = { '1d': 'FREQ=DAILY', '2d': 'FREQ=DAILY;INTERVAL=2', '3d': 'FREQ=DAILY;INTERVAL=3', '1w': 'FREQ=WEEKLY', '1m': 'FREQ=MONTHLY', '1y': 'FREQ=YEARLY' };
+  function alarmEventBody(label, time, days, date, alertBefore, tz, every = '') {
     const z = validTz(tz) || deviceTz();
     const [hh, mm] = time.split(':').map(Number);
     const todayW = Recur.wallCal(z).toWall(new Date());
     let day = null;
-    if (days && days.length) { for (let i = 0; i < 7 && !day; i++) { const d = new Date(Date.UTC(todayW.getUTCFullYear(), todayW.getUTCMonth(), todayW.getUTCDate() + i, hh, mm)); if (days.includes(d.getUTCDay())) day = d; } }
+    if (days && days.length && !every) { for (let i = 0; i < 7 && !day; i++) { const d = new Date(Date.UTC(todayW.getUTCFullYear(), todayW.getUTCMonth(), todayW.getUTCDate() + i, hh, mm)); if (days.includes(d.getUTCDay())) day = d; } }
     else { const [y, m, d] = String(date || todayW.toISOString().slice(0, 10)).split('-').map(Number); day = new Date(Date.UTC(y, m - 1, d, hh, mm)); }
     const ws = d => d.toISOString().slice(0, 19);
-    const spec = { label, time, days, date, alertBefore, z };
+    const spec = { label, time, days, date, alertBefore, z, every };
     return {
       summary: (label.startsWith('🌙') ? '' : '⏰ ') + label, transparency: 'transparent', visibility: 'private',
       start: { dateTime: ws(day), timeZone: z }, end: { dateTime: ws(new Date(day.getTime() + 5 * 60e3)), timeZone: z },
-      recurrence: days && days.length ? ['RRULE:FREQ=WEEKLY;BYDAY=' + days.map(d => BYDAY[d]).join(',')] : [],
+      recurrence: EVERY_RULE[every] ? ['RRULE:' + EVERY_RULE[every]] : days && days.length ? ['RRULE:FREQ=WEEKLY;BYDAY=' + days.map(d => BYDAY[d]).join(',')] : [],
       reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: alertBefore }] },
       extendedProperties: { private: { duocal: '1', key: '', h: hash(JSON.stringify(spec)) } },
     };
@@ -478,7 +480,7 @@
     }
 
     if (kind === 'counters') {
-      const put = v => ({ summary: v.title, start: { dateTime: v.date, timeZone: 'UTC' }, end: { dateTime: new Date(new Date(v.date).getTime() + 60e3).toISOString(), timeZone: 'UTC' }, transparency: 'transparent', extendedProperties: { shared: { t: 'counter', color: String(v.color ?? 3) } } });
+      const put = v => ({ summary: v.title, start: { dateTime: v.date, timeZone: 'UTC' }, end: { dateTime: new Date(new Date(v.date).getTime() + 60e3).toISOString(), timeZone: 'UTC' }, transparency: 'transparent', extendedProperties: { shared: { t: 'counter', color: String(v.color ?? 3), ed: S.me } } });
       if (method === 'POST') { const v = checked('counters', body, false); const g = await gapi('POST', cal(S.dataId) + '/events', put(v)); S.raw.data[g.id] = g; saveCache(); return { id: g.id }; }
       const cur = dataRecords().counters.find(c => c.id === id); if (!cur) throw err('Not found', 404);
       if (method === 'PUT') { const g = await gapi('PUT', dataPath(id), put({ ...cur, ...checked('counters', body, true) })); S.raw.data[g.id] = g; saveCache(); return { id: g.id }; }
@@ -495,7 +497,7 @@
     }
 
     if (kind === 'alarms') {
-      const put = (v, by) => ({ summary: v.label || 'Alarm', start: { date: '2000-01-02' }, end: { date: '2000-01-03' }, transparency: 'transparent', extendedProperties: { shared: { t: 'alarm', forUser: v.forUser, time: v.time, days: (v.days || []).join(','), date: v.date || '', enabled: v.enabled ? '1' : '0', snooze: String(v.snooze || 9), by } } });
+      const put = (v, by) => ({ summary: v.label || 'Alarm', start: { date: '2000-01-02' }, end: { date: '2000-01-03' }, transparency: 'transparent', extendedProperties: { shared: { t: 'alarm', forUser: v.forUser, time: v.time, days: (v.days || []).join(','), date: v.date || '', every: v.every || '', enabled: v.enabled ? '1' : '0', snooze: String(v.snooze || 9), by, ed: S.me } } });
       let res, after = null, removed = null;
       if (method === 'POST') { const v = checked('alarms', { forUser: S.me, ...body }, false); const g = await gapi('POST', cal(S.dataId) + '/events', put(v, S.me)); S.raw.data[g.id] = g; res = { id: g.id }; after = { ...v, id: g.id }; }
       else {
@@ -526,7 +528,7 @@
     }
     if (kind === 'household' && method === 'PUT' && body.partner) { await sharePartner(body.partner); return { ok: true }; }
     if (kind === 'import' && method === 'POST') {
-      const items = ICS.parseICS(String(body.text || '').slice(0, 15e6)).slice(0, 2000);
+      const items = (id === 'rows' && Array.isArray(body.items) ? body.items : ICS.parseICS(String(body.text || '').slice(0, 15e6))).slice(0, 2000);
       const ids = members().map(x => x.id);
       const forUsers = (Array.isArray(body.forUsers) ? body.forUsers : [S.me]).filter(x => ids.includes(x));
       let added = 0;
@@ -551,7 +553,7 @@
     const found = (await listAll(path, { privateExtendedProperty: 'key=' + key, maxResults: '10' })).items.filter(g => g.status !== 'cancelled');
     if (remove || !a.enabled) { for (const g of found) await gapi('DELETE', path + '/' + encodeURIComponent(g.id)).catch(() => { }); return; }
     // same body (and fingerprint) their own app would write, on *their* clock
-    const body = withKey(alarmEventBody(a.label || 'Alarm', a.time, a.days || [], a.date || null, 0, owner.settings.tz), key);
+    const body = withKey(alarmEventBody(a.label || 'Alarm', a.time, a.days || [], a.date || null, 0, owner.settings.tz, a.every || ''), key);
     if (found[0]) await gapi('PUT', path + '/' + encodeURIComponent(found[0].id), body);
     else await gapi('POST', path, body);
   }

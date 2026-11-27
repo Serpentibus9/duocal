@@ -16,7 +16,25 @@ const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const PALETTE = ['var(--c0)', 'var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c5)', 'var(--c6)', 'var(--c7)'];
 const PALETTE_NAMES = ['Navy', 'Blue', 'Cyan', 'Teal', 'Green', 'Amber', 'Orange', 'Red'];
-const HOUR = 48; // px per hour in week/day view (matches --hour in CSS)
+const HOUR = 48;
+// DuoCal's own icon set: simple line drawings that follow the theme colour (currentColor).
+const I = (d, extra = '') => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${d}</svg>`;
+const ICON = {
+  calendar: I('<rect x="3.5" y="5" width="17" height="15.5" rx="4"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="M12 18.2c-2.2-1.4-3.4-2.6-3.4-3.9a1.6 1.6 0 0 1 3.4-.8 1.6 1.6 0 0 1 3.4.8c0 1.3-1.2 2.5-3.4 3.9z" fill="currentColor" stroke="none"/>'),
+  alarm: I('<circle cx="12" cy="13" r="7"/><path d="M12 9.5V13l2.3 1.6"/><path d="M4.2 5.6 6.6 3.4M19.8 5.6l-2.4-2.2"/><path d="M1.8 11.5c.2-1 .6-1.9 1.1-2.7M22.2 11.5c-.2-1-.6-1.9-1.1-2.7"/><path d="M8 20.5l-1 1.5M16 20.5l1 1.5"/>'),
+  sleep: I('<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/><path d="M15 4.5h3.5L15 8.5h3.5" stroke-width="1.6"/><path d="M20.5 9.2l.5-.9.5.9.9.5-.9.5-.5.9-.5-.9-.9-.5z" fill="currentColor" stroke="none"/>'),
+  counters: I('<path d="M7 3h10M7 21h10"/><path d="M8 3c0 4.5 4 5.5 4 9s-4 4.5-4 9M16 3c0 4.5-4 5.5-4 9s4 4.5 4 9"/><path d="M10 18.5h4" stroke-width="2.4"/><path d="M19.5 9.5l.4-.9.4.9.9.4-.9.4-.4.9-.4-.9-.9-.4z" fill="currentColor" stroke="none"/>'),
+  data: I('<path d="M6 3.5h8l4 4v13H6z"/><path d="M14 3.5v4h4"/><path d="M9 13h6M12 10v6"/><path d="M3 15l-1.5 1.5L3 18M21 15l1.5 1.5L21 18" stroke-width="1.6"/>'),
+  settings: I('<path d="M4 6.5h9M17 6.5h3M4 12h3M11 12h9M4 17.5h11M19 17.5h1"/><circle cx="15" cy="6.5" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17.5" r="2"/>'),
+  plus: I('<path d="M12 5v14M5 12h14"/>', ' stroke-width="2.4"'),
+  left: I('<path d="M14.5 6 8.5 12l6 6"/>', ' stroke-width="2.2"'),
+  right: I('<path d="M9.5 6l6 6-6 6"/>', ' stroke-width="2.2"'),
+  heart: I('<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" fill="currentColor" stroke="none"/>'),
+  history: I('<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3 4v4h4"/><path d="M12 8v4.5l3 1.5"/>'),
+};
+// Phone layout (narrow screens): compact toolbar, "3 days" instead of a week, dots in month view.
+const phone = () => innerWidth < 760;
+const weekDays = () => phone() ? 3 : 7; // px per hour in week/day view (matches --hour in CSS)
 
 const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, d.getHours(), d.getMinutes());
@@ -65,7 +83,8 @@ async function reload() {
 const me = () => S.data.me;
 const partner = () => S.data.members.find(m => m.id !== me().id);
 const member = id => S.data.members.find(m => m.id === id);
-const personColor = id => id === me().id ? 'var(--c1)' : 'var(--c6)'; // me = cold, partner = warm
+const personColor = id => id === me().id ? 'var(--accent)' : 'var(--accent2)'; // me = main colour, partner = second colour
+const personInk = id => id === me().id ? 'var(--on-accent)' : 'var(--on-accent2)';
 const initials = n => (n || '?').trim().slice(0, 1).toUpperCase();
 
 // Changes from your partner arrive by checking Google every 30 seconds while the app is open
@@ -103,8 +122,8 @@ function fmtIn(tz, d, withDay) {
 
 // ============ 3. shell ============
 const PAGES = [
-  ['calendar', '📅', 'Calendar'], ['alarms', '⏰', 'Alarms'], ['sleep', '🌙', 'Sleep'],
-  ['counters', '⏳', 'Counters'], ['transfer', '⇄', 'Import / Export'], ['settings', '⚙', 'Settings'],
+  ['calendar', 'calendar', 'Calendar'], ['alarms', 'alarm', 'Alarms'], ['sleep', 'sleep', 'Sleep'],
+  ['counters', 'counters', 'Counters'], ['transfer', 'data', 'Import / Export', 'Data'], ['settings', 'settings', 'Settings'],
 ];
 
 function render() {
@@ -115,11 +134,11 @@ function render() {
   <div class="shell">
     <aside class="side">
       <div class="brand"><img src="icon.svg" alt="">DuoCal</div>
-      ${PAGES.map(([id, ico, label]) => `<button class="nav ${S.page === id ? 'active' : ''}" data-page="${id}"><span class="ico">${ico}</span>${label}</button>`).join('')}
+      ${PAGES.map(([id, ico, label, short]) => `<button class="nav ${S.page === id ? 'active' : ''}" data-page="${id}"><span class="ico">${ICON[ico]}</span><span class="lbl">${label}</span><span class="lbl-s">${short || label}</span></button>`).join('')}
       <div class="grow"></div>
       <div class="people">
         <div class="muted small">${esc(S.data.household.name)}</div>
-        ${S.data.members.map(m => `<div class="person"><span class="avatar" style="background:${personColor(m.id)}">${esc(initials(m.name))}</span><div>${esc(m.name)}${m.id === me().id ? ' <span class="muted">(you)</span>' : ''}<div class="status">${m.id !== me().id && tzOf(m.id) !== myTz() ? `🕐 <span data-tzclock="${esc(tzOf(m.id))}"></span> in ${esc(tzCity(tzOf(m.id)))} ` : ''}${sleepStatus(m.id)}</div></div></div>`).join('')}
+        ${S.data.members.map(m => `<div class="person"><span class="avatar" style="background:${personColor(m.id)};color:${personInk(m.id)}">${esc(initials(m.name))}</span><div>${esc(m.name)}${m.id === me().id ? ' <span class="muted">(you)</span>' : ''}<div class="status">${m.id !== me().id && tzOf(m.id) !== myTz() ? `🕐 <span data-tzclock="${esc(tzOf(m.id))}"></span> in ${esc(tzCity(tzOf(m.id)))} ` : ''}${sleepStatus(m.id)}</div></div></div>`).join('')}
         ${p ? '' : `<button class="btn sm" data-page="settings">+ Invite your partner</button>`}
       </div>
     </aside>
@@ -139,7 +158,7 @@ function renderPage() {
 function visibleRange() {
   const c = S.cursor;
   if (S.calView === 'day') return [startOfDay(c), addDays(startOfDay(c), 1)];
-  if (S.calView === 'week') { const s = weekStart(c); return [s, addDays(s, 7)]; }
+  if (S.calView === 'week') { const s = phone() ? startOfDay(c) : weekStart(c); return [s, addDays(s, weekDays())]; }
   if (S.calView === 'month') { const first = new Date(c.getFullYear(), c.getMonth(), 1); const s = weekStart(first); return [s, addDays(s, 42)]; }
   return [startOfDay(c), addDays(startOfDay(c), 60)]; // agenda: next 60 days
 }
@@ -167,24 +186,40 @@ function evColor(e) { return PALETTE[e.color ?? 1] || PALETTE[1]; }
 function calTitle() {
   const c = S.cursor;
   if (S.calView === 'month') return `${MONTHS[c.getMonth()]} ${c.getFullYear()}`;
-  if (S.calView === 'day') return c.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  if (S.calView === 'day') return c.toLocaleDateString([], phone() ? { weekday: 'short', month: 'short', day: 'numeric' } : { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   if (S.calView === 'week') {
-    const s = weekStart(c), e = addDays(s, 6);
+    const [s] = visibleRange(), e = addDays(s, weekDays() - 1);
+    if (phone()) return `${s.getDate()} – ${e.getDate()} ${MONTHS[e.getMonth()].slice(0, 3)}`;
     return s.getMonth() === e.getMonth() ? `${MONTHS[s.getMonth()]} ${s.getFullYear()}` : `${MONTHS[s.getMonth()].slice(0, 3)} – ${MONTHS[e.getMonth()].slice(0, 3)} ${e.getFullYear()}`;
   }
   return 'Upcoming';
 }
 
 function renderCalendar() {
-  const views = [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['agenda', 'List']];
+  const views = [['day', 'Day'], ['week', phone() ? '3 Days' : 'Week'], ['month', 'Month'], ['agenda', 'List']];
+  if (phone()) {
+    const bar = `
+  <div class="toolbar phone-bar">
+    <div class="row" style="width:100%;gap:6px;flex-wrap:nowrap">
+      <button class="btn icon" id="prev" aria-label="Previous">${ICON.left}</button>
+      <button class="title" id="today" title="Go to today">${esc(calTitle())}</button>
+      <button class="btn icon" id="next" aria-label="Next">${ICON.right}</button>
+      <button class="btn icon" id="recent" aria-label="Recent changes">${ICON.history}</button>
+    </div>
+    <div class="seg" style="width:100%">${views.map(([v, l]) => `<button class="${S.calView === v ? 'on' : ''}" data-view="${v}" style="flex:1">${l}</button>`).join('')}</div>
+  </div>`;
+    const body = S.calView === 'month' ? renderMonth() : S.calView === 'agenda' ? renderAgenda() : renderTimeGrid(S.calView === 'day' ? 1 : weekDays());
+    return bar + `<div class="calscroll">${body}</div><button class="fab" id="new-ev" aria-label="New event">${ICON.plus}</button>`;
+  }
   const toolbar = `
   <div class="toolbar">
-    <button class="btn primary" id="new-ev">+ New</button>
+    <button class="btn primary" id="new-ev">${ICON.plus} New</button>
     <button class="btn" id="today">Today</button>
-    <button class="btn icon" id="prev">‹</button><button class="btn icon" id="next">›</button>
+    <button class="btn icon" id="prev" aria-label="Previous">${ICON.left}</button><button class="btn icon" id="next" aria-label="Next">${ICON.right}</button>
     <div class="title">${esc(calTitle())}</div>
     <div class="spacer"></div>
-    <div class="chips">${S.data.members.map(m => `<button class="chip ${S.filter[m.id] !== false ? 'on' : ''}" data-filter="${esc(m.id)}" style="${S.filter[m.id] !== false ? `background:${personColor(m.id)};border-color:${personColor(m.id)}` : ''}">${esc(m.name)}</button>`).join('')}</div>
+    <button class="btn icon" id="recent" title="Recent changes">${ICON.history}</button>
+    <div class="chips">${S.data.members.map(m => `<button class="chip ${S.filter[m.id] !== false ? 'on' : ''}" data-filter="${esc(m.id)}" style="${S.filter[m.id] !== false ? `background:${personColor(m.id)};border-color:transparent;color:${personInk(m.id)}` : ''}">${esc(m.name)}</button>`).join('')}</div>
     <div class="seg">${views.map(([v, l]) => `<button class="${S.calView === v ? 'on' : ''}" data-view="${v}">${l}</button>`).join('')}</div>
   </div>`;
   const body = S.calView === 'month' ? renderMonth() : S.calView === 'agenda' ? renderAgenda() : renderTimeGrid(S.calView === 'day' ? 1 : 7);
@@ -203,8 +238,9 @@ function renderMonth() {
     const shown = list.slice(0, 4);
     html += `<div class="day ${d.getMonth() !== S.cursor.getMonth() ? 'other' : ''} ${sameDay(d, today) ? 'today' : ''}" data-day="${d.getTime()}">
       <span class="num">${d.getDate()}</span>
-      ${shown.map(o => `<div class="pill" style="background:${evColor(o.ev)}" data-ev="${esc(o.ev.id)}" data-occ="${o.start.getTime()}">${o.ev.allDay ? '' : fmtTime(o.start) + ' '}${esc(o.ev.title)}</div>`).join('')}
-      ${list.length > 4 ? `<div class="more" data-goday="${d.getTime()}">+${list.length - 4} more</div>` : ''}
+      ${phone() ? `<div class="dots">${list.slice(0, 4).map(o => `<i style="background:${evColor(o.ev)}"></i>`).join('')}${list.length > 4 ? '<b>+</b>' : ''}</div>`
+      : shown.map(o => `<div class="pill" style="background:${evColor(o.ev)}" data-ev="${esc(o.ev.id)}" data-occ="${o.start.getTime()}">${o.ev.allDay ? '' : fmtTime(o.start) + ' '}${esc(o.ev.title)}</div>`).join('')
+      + (list.length > 4 ? `<div class="more" data-goday="${d.getTime()}">+${list.length - 4} more</div>` : '')}
     </div>`;
   }
   return html + '</div>';
@@ -243,7 +279,7 @@ function renderTimeGrid(n) {
   const today = new Date();
   const timed = occ.filter(o => !o.ev.allDay && (o.end - o.start) < DAY);
   const allday = occ.filter(o => o.ev.allDay || (o.end - o.start) >= DAY);
-  let html = `<div class="wk" style="grid-template-rows:auto auto 1fr">
+  let html = `<div class="wk ${phone() && n === 1 ? 'no-head' : ''}" style="grid-template-rows:auto auto 1fr">
   <div class="wk-head" style="grid-template-columns:${cols}">${pt ? '<div></div><div></div>' : '<div></div>'}
     ${days.map(d => `<div class="d ${sameDay(d, today) ? 'today' : ''}" data-goday="${d.getTime()}" style="cursor:pointer">${DOW[d.getDay()]}<b>${d.getDate()}</b></div>`).join('')}
   </div>
@@ -297,9 +333,10 @@ function layoutDay(list, day) {
 function bindCalendar() {
   $('#new-ev').onclick = () => { const s = new Date(); s.setMinutes(Math.ceil(s.getMinutes() / 30) * 30, 0, 0); openEventEditor(null, { start: s, end: new Date(s.getTime() + 36e5) }); };
   $('#today').onclick = () => { S.cursor = new Date(); render(); scrollToNow(); };
+  $('#recent') && ($('#recent').onclick = openRecent);
   const step = dir => {
     const c = S.cursor;
-    S.cursor = S.calView === 'month' ? new Date(c.getFullYear(), c.getMonth() + dir, 1) : addDays(c, dir * (S.calView === 'day' ? 1 : S.calView === 'week' ? 7 : 30));
+    S.cursor = S.calView === 'month' ? new Date(c.getFullYear(), c.getMonth() + dir, 1) : addDays(c, dir * (S.calView === 'day' ? 1 : S.calView === 'week' ? weekDays() : 30));
     render();
   };
   $('#prev').onclick = () => step(-1); $('#next').onclick = () => step(1);
@@ -313,6 +350,18 @@ function bindCalendar() {
     el.ondblclick = () => { const d = new Date(+el.dataset.day); openEventEditor(null, { start: new Date(d.getTime() + 9 * 36e5), end: new Date(d.getTime() + 10 * 36e5) }); };
   });
   $$('[data-allday]').forEach(el => el.ondblclick = () => { const d = new Date(+el.dataset.allday); openEventEditor(null, { start: d, end: addDays(d, 1), allDay: true }); });
+  if (phone()) {
+    // tap a day in the month to open it
+    $$('.month .day').forEach(el => el.onclick = () => { S.cursor = new Date(+el.dataset.day); S.calView = 'day'; localStorage.setItem('duocal.calView', 'day'); render(); scrollToNow(); });
+    // swipe left/right to move through days/months
+    const sc = $('.calscroll'); let x0 = null, y0 = null;
+    sc.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+    sc.addEventListener('touchend', e => {
+      if (x0 == null) return;
+      const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+      if (Math.abs(dx) > 70 && Math.abs(dy) < 50 && S.calView !== 'agenda') step(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  }
   bindTimeGridDrag();
   if (!bindCalendar.didScroll) { bindCalendar.didScroll = true; scrollToNow(); }
 }
@@ -436,7 +485,7 @@ function modal(html, onMount) {
 }
 function repeatOptions(rrule, start) {
   const wd = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][start.getDay()];
-  const opts = [['', 'Does not repeat'], ['FREQ=DAILY', 'Every day'], ['FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', 'Every weekday (Mon–Fri)'],
+  const opts = [['', 'Does not repeat'], ['FREQ=DAILY', 'Every day'], ['FREQ=DAILY;INTERVAL=2', 'Every 2 days'], ['FREQ=DAILY;INTERVAL=3', 'Every 3 days'], ['FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', 'Every weekday (Mon–Fri)'],
     [`FREQ=WEEKLY;BYDAY=${wd}`, `Every week on ${DOW[start.getDay()]}`], [`FREQ=WEEKLY;INTERVAL=2;BYDAY=${wd}`, `Every 2 weeks on ${DOW[start.getDay()]}`],
     ['FREQ=MONTHLY', `Every month on day ${start.getDate()}`], ['FREQ=YEARLY', `Every year on ${MONTHS[start.getMonth()].slice(0, 3)} ${start.getDate()}`]];
   const known = opts.some(o => o[0] === (rrule || ''));
@@ -471,7 +520,7 @@ function openEventEditor(ev, preset, occStart) {
     <label class="f">Remind ${S.data.members.length > 1 ? 'the people it\'s for' : 'me'}<div class="chips" id="e-rem">${REMINDER_CHOICES.map(([m, l]) => `<button class="chip ${(e.reminders || []).includes(m) ? 'on' : ''}" data-m="${m}">${l}</button>`).join('')}</div></label>
     <label class="f">Location<input type="text" id="e-loc" value="${esc(e.location)}"></label>
     <label class="f">Notes<textarea id="e-notes" rows="3">${esc(e.notes)}</textarea></label>
-    ${!isNew ? `<p class="muted small">Added by ${esc(member(e.createdBy)?.name || 'someone')}${e.updatedBy && e.updatedBy !== e.createdBy ? `, last changed by ${esc(member(e.updatedBy)?.name || '')}` : ''}.</p>` : ''}
+    ${!isNew ? `<p class="muted small">${ICON.history} Added by ${esc(member(e.createdBy)?.name || 'someone')}${e.updatedAt ? ` · last changed${e.updatedBy ? ' by ' + esc(member(e.updatedBy)?.name || '') : ''} ${esc(ago(e.updatedAt))}` : ''}.</p>` : ''}
     <div class="actions">
       ${!isNew && !ro ? `<button class="btn danger" id="e-del">Delete</button>` : ''}
       ${!isNew ? `<button class="btn" id="e-count" title="Make a live countdown for this">⏳ Countdown</button>` : ''}
@@ -566,6 +615,33 @@ async function saveRepeating(ev, occ, body, choice) {
   const exdates = (ev.exdates || []).map(d => new Date(new Date(d).getTime() + delta).toISOString()); // skipped dates move with the series
   await api('/api/events/' + ev.id, { method: 'PUT', body: { ...body, exdates, start: start.toISOString(), end: new Date(start.getTime() + len).toISOString() } });
 }
+// "5 min ago", "yesterday", "3 Nov"
+function ago(iso) {
+  const ms = Date.now() - new Date(iso);
+  if (isNaN(ms)) return '';
+  if (ms < 60e3) return 'just now';
+  if (ms < 36e5) return Math.round(ms / 6e4) + ' min ago';
+  if (ms < DAY) return Math.round(ms / 36e5) + ' h ago';
+  if (ms < 2 * DAY) return 'yesterday';
+  if (ms < 7 * DAY) return Math.round(ms / DAY) + ' days ago';
+  return new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+// Recent changes: the newest edits to events, alarms and counters, and who made them.
+function openRecent() {
+  const rows = [
+    ...S.data.events.filter(e => !e.readOnly && e.updatedAt).map(e => ({ kind: 'Event', title: e.title, when: e.updatedAt, who: e.updatedBy, open: () => openEventById(e.id) })),
+    ...S.data.alarms.filter(a => a.updatedAt).map(a => ({ kind: 'Alarm', title: `${a.label} · ${a.time}` + (a.forUser !== me().id ? ` (for ${member(a.forUser)?.name || ''})` : ''), when: a.updatedAt, who: a.updatedBy })),
+    ...S.data.counters.filter(c => c.updatedAt).map(c => ({ kind: 'Counter', title: c.title, when: c.updatedAt, who: c.updatedBy })),
+  ].sort((x, y) => String(y.when).localeCompare(String(x.when))).slice(0, 40);
+  modal(`<h3>${ICON.history} Recent changes</h3>
+    ${rows.length ? rows.map((r, i) => `<div class="recent" data-i="${i}"><span class="avatar" style="background:${r.who ? personColor(r.who) : 'var(--line)'};color:${r.who ? personInk(r.who) : 'var(--text)'}">${esc(initials(member(r.who)?.name || '?'))}</span>
+      <div style="flex:1;min-width:0"><b>${esc(member(r.who)?.name || 'Someone')}</b> <span class="muted small">changed ${/^[aeiou]/i.test(r.kind) ? "an" : "a"} ${r.kind.toLowerCase()}</span><div class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</div></div>
+      <span class="muted small">${esc(ago(r.when))}</span></div>`).join('') : '<p class="muted">No changes yet.</p>'}
+    <div class="actions"><div class="spacer"></div><button class="btn primary" id="rc-close">Close</button></div>`, (m, close) => {
+    $('#rc-close', m).onclick = close;
+    $$('.recent', m).forEach(el => el.onclick = () => { const r = rows[+el.dataset.i]; if (r.open) { close(); r.open(); } });
+  });
+}
 // small "pick one" dialog stacked above the current modal
 function choose(title, text, options) {
   return new Promise(resolve => {
@@ -580,7 +656,7 @@ function choose(title, text, options) {
 function renderAlarms() {
   const mine = S.data.alarms.sort((a, b) => a.time.localeCompare(b.time));
   const card = a => {
-    const days = a.days && a.days.length ? (a.days.length === 7 ? 'Every day' : a.days.length === 5 && !a.days.includes(0) && !a.days.includes(6) ? 'Weekdays' : a.days.map(d => DOW[d]).join(' ')) : (a.date ? new Date(a.date + 'T00:00').toLocaleDateString() : 'Once');
+    const days = a.every ? EVERY_LABEL[a.every] : a.days && a.days.length ? (a.days.length === 7 ? 'Every day' : a.days.length === 5 && !a.days.includes(0) && !a.days.includes(6) ? 'Weekdays' : a.days.map(d => DOW[d]).join(' ')) : (a.date ? new Date(a.date + 'T00:00').toLocaleDateString() : 'Once');
     const who = a.forUser === me().id ? (a.createdBy === me().id ? '' : `set for you by ${esc(member(a.createdBy)?.name)}`) : `for ${esc(member(a.forUser)?.name)}`;
     return `<div class="card alarm-card ${a.enabled ? '' : 'off'}">
       <div style="flex:1;cursor:pointer" data-edit-alarm="${esc(a.id)}">
@@ -609,41 +685,112 @@ function bindAlarms() {
     await api('/api/alarms/' + a.id, { method: 'PUT', body: { enabled: !a.enabled } }); await reload(); render();
   });
 }
+const EVERY_LABEL = { '': 'Once', '1d': 'Every day', '2d': 'Every 2 days', '3d': 'Every 3 days', '1w': 'Every week', '1m': 'Every month', '1y': 'Every year' };
+// A wheel you can scroll (like the iPhone clock) plus a box you can type in. Both stay in sync.
+function timeWheel(m, initial) {
+  const h24 = use24h(), ITEM = 44;
+  const hours = h24 ? Array.from({ length: 24 }, (_, i) => pad(i)) : Array.from({ length: 12 }, (_, i) => String(i === 0 ? 12 : i));
+  const mins = Array.from({ length: 60 }, (_, i) => pad(i));
+  const col = (id, items) => `<div class="wheel" id="${id}"><div class="wheel-pad"></div>${items.map(x => `<div class="wheel-item">${x}</div>`).join('')}<div class="wheel-pad"></div></div>`;
+  $('#a-wheel', m).innerHTML = `<div class="wheels">${col('w-h', hours)}<div class="wheel-colon">:</div>${col('w-m', mins)}${h24 ? '' : col('w-ap', ['AM', 'PM'])}<div class="wheel-band"></div></div>`;
+  const wh = $('#w-h', m), wm = $('#w-m', m), wap = $('#w-ap', m), box = $('#a-time', m);
+  const idx = el => Math.max(0, Math.round(el.scrollTop / ITEM));
+  const read = () => {
+    let h = idx(wh), mi = idx(wm);
+    if (!h24) { h = h % 12 + (idx(wap) === 1 ? 12 : 0); }
+    return `${pad(Math.min(23, h))}:${pad(Math.min(59, mi))}`;
+  };
+  const show = (t, smooth) => {
+    const [h, mi] = t.split(':').map(Number);
+    const go = (el, i) => el.scrollTo({ top: i * ITEM, behavior: smooth ? 'smooth' : 'auto' });
+    go(wh, h24 ? h : h % 12); go(wm, mi); if (wap) go(wap, h >= 12 ? 1 : 0);
+  };
+  let typing = false, timer;
+  [wh, wm, wap].filter(Boolean).forEach(el => el.addEventListener('scroll', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (!typing) box.value = read(); }, 90);
+  }));
+  // typing: "730", "7:30", "19.30", "7:30 pm" all work
+  const parse = v => {
+    v = String(v).trim().toLowerCase();
+    const pm = /p/.test(v), am = /a/.test(v);
+    const digits = v.replace(/[^0-9]/g, '');
+    let h, mi;
+    if (/[:.\s]/.test(v.replace(/\s*[ap]\.?m?\.?$/, ''))) { const [a, b] = v.split(/[:.\s]/); h = +a.replace(/\D/g, ''); mi = +(b || '0').replace(/\D/g, ''); }
+    else if (digits.length <= 2) { h = +digits; mi = 0; }
+    else { h = +digits.slice(0, digits.length - 2); mi = +digits.slice(-2); }
+    if (pm && h < 12) h += 12; if (am && h === 12) h = 0;
+    return Number.isFinite(h) && Number.isFinite(mi) && h >= 0 && h < 24 && mi >= 0 && mi < 60 ? `${pad(h)}:${pad(mi)}` : null;
+  };
+  box.addEventListener('focus', () => { typing = true; box.select(); });
+  box.addEventListener('input', () => { const t = parse(box.value); box.classList.toggle('bad', !t && box.value.length > 2); if (t) show(t, true); });
+  box.addEventListener('blur', () => { typing = false; const t = parse(box.value) || read(); box.value = t; show(t); });
+  box.value = initial; requestAnimationFrame(() => show(initial));
+  return () => parse(box.value) || read();
+}
 function openAlarmEditor(a) {
   const isNew = !a;
-  a = a || { time: fmtTimeInput(new Date(Date.now() + 36e5)).slice(0, 3) + '00', label: '', days: [], enabled: true, forUser: me().id, snooze: 9 };
+  a = a || { time: fmtTimeInput(new Date(Date.now() + 36e5)).slice(0, 3) + '00', label: '', days: [], enabled: true, forUser: me().id, snooze: 9, every: '' };
+  const mode = a.every ? a.every : (a.days && a.days.length ? 'days' : '');
   modal(`<h3>${isNew ? 'New alarm' : 'Edit alarm'}</h3>
-    <input type="time" id="a-time" value="${a.time}" style="font-size:40px;text-align:center;padding:14px">
-    <label class="f" style="margin-top:12px">Label<input type="text" id="a-label" value="${esc(a.label)}" placeholder="Wake up, Gym, Pills…"></label>
-    <label class="f">Repeat on (none = only once)<div class="chips" id="a-days">${DOW.map((d, i) => `<button class="chip ${(a.days || []).includes(i) ? 'on' : ''}" data-d="${i}">${d}</button>`).join('')}</div></label>
+    <label class="f">Time — scroll the wheel or type it<input type="text" id="a-time" inputmode="numeric" autocomplete="off" class="time-box" aria-label="Alarm time"></label>
+    <div id="a-wheel"></div>
+    <label class="f" style="margin-top:12px">Label<input type="text" id="a-label" value="${esc(a.label)}" placeholder="Wake up, Gym, Pills…" maxlength="80"></label>
+    <label class="f">Repeat<select id="a-rep">
+      ${[['', 'Once'], ['1d', 'Every day'], ['2d', 'Every 2 days'], ['3d', 'Every 3 days'], ['1w', 'Every week'], ['1m', 'Every month'], ['1y', 'Every year'], ['days', 'On chosen weekdays…']].map(([v, l]) => `<option value="${v}" ${mode === v ? 'selected' : ''}>${l}</option>`).join('')}
+    </select></label>
+    <label class="f ${mode === 'days' ? '' : 'hidden'}" id="a-days-wrap">Weekdays<div class="chips" id="a-days">${DOW.map((d, i) => `<button class="chip ${(a.days || []).includes(i) ? 'on' : ''}" data-d="${i}">${d}</button>`).join('')}</div></label>
+    <label class="f ${mode && mode !== 'days' ? '' : 'hidden'}" id="a-from-wrap">Starting on<input type="date" id="a-from" value="${esc(a.date || '')}"></label>
     ${S.data.members.length > 1 ? `<label class="f">Rings for<div class="chips" id="a-for">${S.data.members.map(m => `<button class="chip ${a.forUser === m.id ? 'on' : ''}" data-id="${esc(m.id)}">${m.id === me().id ? 'Me' : esc(m.name)}</button>`).join('')}</div></label>` : ''}
     <p class="small muted" id="a-tznote"></p>
     <label class="f">Snooze length (minutes)<input type="number" id="a-snooze" min="1" max="60" value="${a.snooze || 9}"></label>
-    <div class="actions">${isNew ? '' : '<button class="btn danger" id="a-del">Delete</button>'}<button class="btn" id="a-test">▶ Test sound</button><div class="spacer"></div><button class="btn" id="a-cancel">Cancel</button><button class="btn primary" id="a-save">Save</button></div>`,
+    <div class="actions">${isNew ? '' : '<button class="btn danger" id="a-del">Delete</button>'}<button class="btn" id="a-test">▶ Sound</button><div class="spacer"></div><button class="btn" id="a-cancel">Cancel</button><button class="btn primary" id="a-save">Save</button></div>`,
     (m, close) => {
+      const getTime = timeWheel(m, a.time);
       $$('#a-days .chip', m).forEach(c => c.onclick = () => c.classList.toggle('on'));
-      const tzNote = () => { const id = $('#a-for .chip.on', m)?.dataset.id || me().id; const z = tzOf(id); $('#a-tznote', m).textContent = id !== me().id && z !== myTz() ? `This time is ${member(id).name}'s local time in ${tzCity(z)} (now ${clockIn(z).hm} there).` : ''; };
+      const rep = $('#a-rep', m);
+      const forUserNow = () => $('#a-for .chip.on', m)?.dataset.id || me().id;
+      const syncRep = () => {
+        $('#a-days-wrap', m).classList.toggle('hidden', rep.value !== 'days');
+        $('#a-from-wrap', m).classList.toggle('hidden', !rep.value || rep.value === 'days');
+        if (rep.value && rep.value !== 'days' && !$('#a-from', m).value) $('#a-from', m).value = clockIn(tzOf(forUserNow())).date;
+      };
+      rep.onchange = syncRep; syncRep();
+      const tzNote = () => { const id = forUserNow(); const z = tzOf(id); $('#a-tznote', m).textContent = id !== me().id && z !== myTz() ? `This time is ${member(id).name}'s local time in ${tzCity(z)} (now ${clockIn(z).hm} there).` : ''; };
       $$('#a-for .chip', m).forEach(c => c.onclick = () => { $$('#a-for .chip', m).forEach(x => x.classList.remove('on')); c.classList.add('on'); tzNote(); });
       tzNote();
       $('#a-cancel', m).onclick = close;
-      $('#a-test', m).onclick = () => { Sound.start(); setTimeout(() => Sound.stop(), 2500); };
+      $('#a-test', m).onclick = () => { Sound.start(); setTimeout(() => Sound.stop(), 4000); };
       $('#a-save', m).onclick = async () => {
-        const days = $$('#a-days .chip.on', m).map(c => +c.dataset.d);
-        const time = $('#a-time', m).value || '07:00';
-        // one-time alarm: today if the time is still ahead, otherwise tomorrow
+        const time = getTime();
+        const forUser = forUserNow();
+        const mode = rep.value;
+        const days = mode === 'days' ? $$('#a-days .chip.on', m).map(c => +c.dataset.d) : [];
+        if (mode === 'days' && !days.length) return toast('Pick at least one weekday');
         let date = null;
-        const forUser = $('#a-for .chip.on', m)?.dataset.id || me().id;
-        if (!days.length) { // today on *their* clock if the time is still ahead there, otherwise tomorrow
+        if (mode && mode !== 'days') date = $('#a-from', m).value || clockIn(tzOf(forUser)).date;
+        if (!mode) { // once: today on *their* clock if the time is still ahead there, otherwise tomorrow
           const c = clockIn(tzOf(forUser));
           const d = new Date(c.date + 'T00:00:00Z'); if (time <= c.hm) d.setUTCDate(d.getUTCDate() + 1);
           date = d.toISOString().slice(0, 10);
         }
-        const body = { time, label: $('#a-label', m).value.trim() || 'Alarm', days, date, enabled: true, snooze: +$('#a-snooze', m).value || 9, forUser };
-        if (isNew) await api('/api/alarms', { method: 'POST', body }); else await api('/api/alarms/' + a.id, { method: 'PUT', body });
-        close(); await reload(); render(); toast(body.forUser !== me().id ? `Alarm set for ${member(body.forUser).name}` : 'Alarm saved');
+        const body = { time, label: $('#a-label', m).value.trim() || 'Alarm', days, date, every: mode === 'days' ? '' : mode, enabled: true, snooze: +$('#a-snooze', m).value || 9, forUser };
+        try {
+          if (isNew) await api('/api/alarms', { method: 'POST', body }); else await api('/api/alarms/' + a.id, { method: 'PUT', body });
+          close(); await reload(); render(); toast(body.forUser !== me().id ? `Alarm set for ${member(body.forUser).name}` : `Alarm saved · ${EVERY_LABEL[body.every] || (days.length ? 'chosen days' : 'once')} at ${time}`);
+        } catch (e) { toast(e.message); }
       };
       $('#a-del', m) && ($('#a-del', m).onclick = async () => { await api('/api/alarms/' + a.id, { method: 'DELETE' }); close(); await reload(); render(); });
     });
+}
+// Does a repeating alarm ring on day `ymd` (its owner's calendar date)?
+function alarmOnDay(a, ymd, dow) {
+  if (a.every) {
+    if (!a.date || ymd < a.date) return false;
+    const diff = Math.round((Date.parse(ymd + 'T00:00:00Z') - Date.parse(a.date + 'T00:00:00Z')) / DAY);
+    return { '1d': true, '2d': diff % 2 === 0, '3d': diff % 3 === 0, '1w': diff % 7 === 0, '1m': ymd.slice(8) === a.date.slice(8), '1y': ymd.slice(5) === a.date.slice(5) }[a.every] || false;
+  }
+  return a.days && a.days.length ? a.days.includes(dow) : (!a.date || a.date === ymd);
 }
 
 // Alarm sound made in code (no audio file): a repeating three-beep pattern.
@@ -829,58 +976,71 @@ function renderTransfer() {
   const today = new Date();
   const shown = me().settings.extraCals || [];
   const cals = S.data.extraCalendars || [];
+  const how = (title, steps) => `<details class="how"><summary>${title}</summary><ol class="small">${steps.map(s => `<li>${s}</li>`).join('')}</ol></details>`;
   return `<div class="page">
     <h1>Import / Export</h1>
     <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))">
       <div class="card">
-        <h2 style="margin-top:0">📥 Import a calendar file</h2>
-        <p class="muted small">Outlook: open the calendar, <i>File → Save Calendar</i> (.ics). Google: <i>Settings → Import &amp; export → Export</i>. Apple: <i>File → Export</i>. The events are copied into "Us · DuoCal".</p>
-        <input type="file" id="ics-file" accept=".ics,text/calendar" multiple>
-        <div class="row" style="margin-top:10px"><span class="small muted">Imported events are for:</span><div class="chips" id="imp-for">${S.data.members.map(m => `<button class="chip ${m.id === me().id ? 'on' : ''}" data-id="${esc(m.id)}">${m.id === me().id ? 'Me' : esc(m.name)}</button>`).join('')}</div></div>
+        <h2 style="margin-top:0">${ICON.data} Bring events in</h2>
+        <p class="small">Pick one or more files. DuoCal reads <b>.ics</b>, Google's <b>.zip</b>, <b>.csv</b> and <b>Excel (.xlsx)</b>. They're copied into "Us · DuoCal". Files stay on your device; nothing is uploaded anywhere.</p>
+        <label class="btn primary" style="width:100%;margin:6px 0 10px">${ICON.plus} Choose files<input type="file" id="imp-file" accept=".ics,.ical,.zip,.csv,.txt,.xlsx" multiple hidden></label>
+        <div class="row" style="margin-bottom:8px"><span class="small muted">The events are for:</span><div class="chips" id="imp-for">${S.data.members.map(m => `<button class="chip ${m.id === me().id ? 'on' : ''}" data-id="${esc(m.id)}">${m.id === me().id ? 'Me' : esc(m.name)}</button>`).join('')}</div></div>
+        ${how('From Outlook', ['Windows Outlook: open your calendar → <b>File → Save Calendar</b> → save the <b>.ics</b> file.', 'Or: <b>File → Open &amp; Export → Import/Export → Export to a file → Comma Separated Values</b> → pick Calendar → save the <b>.csv</b>.', 'Outlook.com: Settings → Calendar → Shared calendars → Publish → copy the ICS link, then add it in Google (see "Show your other calendars").'])}
+        ${how('From Google Calendar', ['On a computer: calendar.google.com → ⚙ Settings → <b>Import &amp; export → Export</b>.', 'Pick the downloaded <b>.zip</b> here as it is; DuoCal unpacks it.'])}
+        ${how('From iPhone / Apple Calendar', ['iPhone calendars live in iCloud. On a Mac: Calendar → select a calendar → <b>File → Export → Export…</b> → the <b>.ics</b> file.', 'Without a Mac: on the iPhone, Calendar → Calendars → (i) next to the calendar → <b>Public Calendar</b> on → Share Link. Add that link in Google (see "Show your other calendars").'])}
+        ${how('From Excel', ['First row = headings: <b>Subject</b> (or Title), <b>Start Date</b>, <b>Start Time</b>, <b>End Date</b>, <b>End Time</b>, and optionally <b>All Day Event</b>, <b>Location</b>, <b>Description</b>.', 'Dates like 2026-11-27 or 11/27/2026; times like 14:30 or 2:30 PM.', 'DuoCal\'s own Excel export can be imported back too.'])}
       </div>
       <div class="card">
-        <h2 style="margin-top:0">🔗 Show your other calendars</h2>
-        <p class="muted small">Pick any of <b>your</b> Google calendars to show here (read-only, only on your devices). To bring in <b>Outlook or iCloud</b>: in Google Calendar on a computer, <i>Other calendars → + → From URL</i>, and paste the Outlook/iCloud "publish" link. It then appears in this list.</p>
-        ${cals.length ? cals.map(c => `<label class="row small" style="padding:4px 0"><input type="checkbox" data-extra="${esc(c.id)}" ${shown.includes(c.id) ? 'checked' : ''} style="width:auto"> ${esc(c.name)}${c.primary ? ' <span class="muted">(main)</span>' : ''}</label>`).join('') : '<p class="muted small">No other calendars found.</p>'}
-      </div>
-      <div class="card">
-        <h2 style="margin-top:0">📊 Export to Excel</h2>
-        <p class="muted small">Events (repeats expanded, color-coded), alarms, sleep log and counters, one sheet each. Times are in your time zone (${esc(tzCity(myTz()))}).</p>
+        <h2 style="margin-top:0">${ICON.calendar} Send events out</h2>
         <div class="two"><label class="f">From<input type="date" id="x-from" value="${fmtDateInput(new Date(today.getFullYear(), today.getMonth() - 1, 1))}"></label><label class="f">To<input type="date" id="x-to" value="${fmtDateInput(new Date(today.getFullYear(), today.getMonth() + 3, 0))}"></label></div>
-        <button class="btn primary" id="x-go">Download .xlsx</button>
+        <div class="export-grid">
+          <button class="btn" id="x-xlsx"><b>Excel</b><span class="small muted">.xlsx · events, alarms, sleep, counters</span></button>
+          <button class="btn" id="x-ics"><b>Calendar file</b><span class="small muted">.ics · iPhone/Apple, Google, Outlook</span></button>
+          <button class="btn" id="x-csv"><b>Outlook / Google sheet</b><span class="small muted">.csv · their import format</span></button>
+        </div>
+        <p class="muted small" style="margin-top:10px">Tip: you don't need to export to see DuoCal on iPhone, Mac or Outlook. "Us · DuoCal" is a normal Google calendar, so add your Gmail account there and it stays in sync.</p>
       </div>
       <div class="card">
-        <h2 style="margin-top:0">📤 On iPhone, Mac and Outlook</h2>
-        <p class="small">"Us · DuoCal" is a normal Google calendar. Add your Gmail account in the iPhone/Mac Calendar app or in Outlook and it shows up there, with alerts.</p>
-        <p class="muted small">iPhone: Settings → Apps → Calendar → Calendar Accounts → Add Account → Google. Mac: System Settings → Internet Accounts → Google. Outlook: Add account → your Gmail.</p>
+        <h2 style="margin-top:0">${ICON.history} Show your other calendars</h2>
+        <p class="small">Pick any of <b>your</b> Google calendars to show here (read-only, only on your devices). To show an <b>Outlook or iCloud</b> calendar that keeps updating: in Google Calendar on a computer, <i>Other calendars → + → From URL</i>, paste its link, and it appears below.</p>
+        ${cals.length ? cals.map(c => `<label class="row small" style="padding:6px 0"><input type="checkbox" data-extra="${esc(c.id)}" ${shown.includes(c.id) ? 'checked' : ''} style="width:20px;height:20px"> ${esc(c.name)}${c.primary ? ' <span class="muted">(main)</span>' : ''}</label>`).join('') : '<p class="muted small">No other calendars found.</p>'}
       </div>
     </div></div>`;
 }
 function bindTransfer() {
   $$('#imp-for .chip').forEach(c => c.onclick = () => c.classList.toggle('on'));
-  $('#ics-file').onchange = async e => {
-    let added = 0;
-    try {
-      for (const f of e.target.files) {
-        if (f.size > 15e6) { toast(f.name + ' is too large'); continue; }
-        const r = await api('/api/import/ics', { method: 'POST', body: { text: await f.text(), forUsers: $$('#imp-for .chip.on').map(c => c.dataset.id) } });
-        added += r.added;
-      }
-    } catch (err) { toast(err.message); }
-    await reload(); render(); toast(`Imported ${added} events`);
+  $('#imp-file').onchange = async e => {
+    const files = [...e.target.files]; e.target.value = '';
+    const forUsers = $$('#imp-for .chip.on').map(c => c.dataset.id);
+    let added = 0; const problems = [];
+    toast(`Reading ${files.length} file${files.length > 1 ? 's' : ''}…`);
+    for (const f of files) {
+      try {
+        const r = await Importers.readFile(f);
+        for (const text of r.ics) added += (await api('/api/import/ics', { method: 'POST', body: { text, forUsers } })).added;
+        if (r.events.length) added += (await api('/api/import/rows', { method: 'POST', body: { items: r.events, forUsers } })).added;
+      } catch (err) { problems.push(`${f.name}: ${err.message}`); }
+    }
+    await reload(); render();
+    toast(problems.length ? problems.join(' · ') : `Imported ${added} event${added === 1 ? '' : 's'}`);
   };
   $$('[data-extra]').forEach(cb => cb.onchange = async () => {
     const ids = $$('[data-extra]').filter(x => x.checked).map(x => x.dataset.extra);
     try { await api('/api/me', { method: 'PUT', body: { settings: { extraCals: ids } } }); await reload(); render(); toast('Updated'); } catch (err) { toast(err.message); }
   });
-  $('#x-go').onclick = async () => {
-    try {
-      const from = parseLocal($('#x-from').value), to = addDays(parseLocal($('#x-to').value), 1);
-      const buf = await ExportXlsx.build(S.data, from, to, myTz());
-      const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-      const a = document.createElement('a'); a.href = url; a.download = `DuoCal-${fmtDateInput(new Date())}.xlsx`; document.body.append(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-    } catch (err) { toast('Export failed: ' + err.message); }
+  const range = () => [parseLocal($('#x-from').value), addDays(parseLocal($('#x-to').value), 1)];
+  const stamp = () => fmtDateInput(new Date());
+  $('#x-xlsx').onclick = async () => {
+    try { const [from, to] = range(); const buf = await ExportXlsx.build(S.data, from, to, myTz()); Importers.download(`DuoCal-${stamp()}.xlsx`, buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); }
+    catch (err) { toast('Export failed: ' + err.message); }
+  };
+  $('#x-ics').onclick = () => { // whole events, repeats kept as repeats
+    const evs = S.data.events.filter(e => !e.readOnly);
+    Importers.download(`DuoCal-${stamp()}.ics`, ICS.buildICS(evs, S.data.household.name || 'DuoCal'), 'text/calendar');
+  };
+  $('#x-csv').onclick = () => { // CSV has no repeats: every date in the range becomes its own row
+    const [from, to] = range();
+    Importers.download(`DuoCal-${stamp()}.csv`, Importers.buildCSV(occurrences(from, to).filter(o => !o.ev.readOnly)), 'text/csv');
   };
 }
 
@@ -955,6 +1115,8 @@ function applyTheme() {
   localStorage.setItem('duocal.theme', t);
   const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  // the phone's status bar / browser bar takes the theme's background colour
+  const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.content = dark ? '#07060c' : '#f4f1ea';
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
@@ -1082,10 +1244,10 @@ function tick() {
 
   for (const a of S.data.alarms) {
     if (!a.enabled || a.forUser !== me().id || a.time !== hm) continue;
-    const repeatHit = a.days && a.days.length ? a.days.includes(mine.dow) : (!a.date || a.date === today);
+    const repeatHit = alarmOnDay(a, today, mine.dow);
     if (!repeatHit || fired(`alarm.${a.id}.${minuteKey}`)) continue;
     ring(a.label || 'Alarm', a.snooze || 9);
-    if (!a.days || !a.days.length) api('/api/alarms/' + a.id, { method: 'PUT', body: { enabled: false } }).then(reload).catch(() => { });
+    if (!a.every && (!a.days || !a.days.length)) api('/api/alarms/' + a.id, { method: 'PUT', body: { enabled: false } }).then(reload).catch(() => { });
   }
   const s = me().settings;
   if (s.wakeAlarm && s.waketime === hm && !fired(`wake.${minuteKey}`)) ring('Wake up ☀️', 9);
@@ -1113,6 +1275,8 @@ function tick() {
   if (S.page === 'calendar' && !S.busy && !$('.overlay')) $$('.nowline').forEach(l => l.style.top = (now.getHours() * 60 + now.getMinutes()) / 60 * HOUR + 'px');
 }
 setInterval(tick, 1000);
+let wasPhone = phone();
+addEventListener('resize', () => { if (phone() !== wasPhone) { wasPhone = phone(); if (S.data && !$('.overlay')) render(); } });
 
 // ============ 13. boot ============
 (async function boot() {

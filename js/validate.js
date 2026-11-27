@@ -39,7 +39,8 @@ const SCHEMAS = {
     title: V.str(200), notes: V.str(5000), location: V.str(300), start: V.iso(), end: V.iso(), allDay: V.bool(),
     color: V.int(0, 7), forUsers: V.arr(V.str(40), 2), reminders: V.arr(V.int(0, 40320), 6), rrule: V.rrule(), exdates: V.arr(V.iso(), 500), tz: V.tz(),
   },
-  alarms: { time: V.hm(), label: V.str(80), days: V.arr(V.int(0, 6), 7), date: V.ymdOrNull(), enabled: V.bool(), snooze: V.int(1, 60), forUser: V.str(40) },
+  // every: '' = once (or the chosen weekdays), or repeat every 1/2/3 days, week, month, year from `date`
+  alarms: { time: V.hm(), label: V.str(80), days: V.arr(V.int(0, 6), 7), date: V.ymdOrNull(), enabled: V.bool(), snooze: V.int(1, 60), forUser: V.str(40), every: v => ['', '1d', '2d', '3d', '1w', '1m', '1y'].includes(v) ? v : undefined },
   counters: { title: V.str(120), date: V.iso(), color: V.int(0, 7) },
   subscriptions: { url: V.url(), name: V.str(80), color: V.int(0, 7), forUsers: V.arr(V.str(40), 2) },
   sleepLogs: { start: V.iso(), end: V.isoOrNull() },
