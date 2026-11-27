@@ -496,15 +496,18 @@
 
     if (kind === 'alarms') {
       const put = (v, by) => ({ summary: v.label || 'Alarm', start: { date: '2000-01-02' }, end: { date: '2000-01-03' }, transparency: 'transparent', extendedProperties: { shared: { t: 'alarm', forUser: v.forUser, time: v.time, days: (v.days || []).join(','), date: v.date || '', enabled: v.enabled ? '1' : '0', snooze: String(v.snooze || 9), by } } });
-      let res;
-      if (method === 'POST') { const v = checked('alarms', { forUser: S.me, ...body }, false); const g = await gapi('POST', cal(S.dataId) + '/events', put(v, S.me)); S.raw.data[g.id] = g; res = { id: g.id }; }
+      let res, after = null, removed = null;
+      if (method === 'POST') { const v = checked('alarms', { forUser: S.me, ...body }, false); const g = await gapi('POST', cal(S.dataId) + '/events', put(v, S.me)); S.raw.data[g.id] = g; res = { id: g.id }; after = { ...v, id: g.id }; }
       else {
         const cur = dataRecords().alarms.find(c => c.id === id); if (!cur) throw err('Not found', 404);
-        if (method === 'PUT') { const g = await gapi('PUT', dataPath(id), put({ ...cur, ...checked('alarms', body, true) }, cur.createdBy || S.me)); S.raw.data[g.id] = g; res = { id: g.id }; }
-        else if (method === 'DELETE') { await gapi('DELETE', dataPath(id)).catch(() => { }); delete S.raw.data[id]; res = {}; }
+        if (method === 'PUT') { const v = { ...cur, ...checked('alarms', body, true) }; const g = await gapi('PUT', dataPath(id), put(v, cur.createdBy || S.me)); S.raw.data[g.id] = g; res = { id: g.id }; after = { ...v, id: g.id }; }
+        else if (method === 'DELETE') { await gapi('DELETE', dataPath(id)).catch(() => { }); delete S.raw.data[id]; res = {}; removed = cur; }
       }
       saveCache();
-      reconcileSoon(); // my own alarms go to my phone right away; my partner's phone updates when their app syncs
+      reconcileSoon(); // my own alarms go to my phone right away
+      // an alarm for my partner goes straight into *their* alarm calendar (if they allowed me),
+      // so their phone alerts even if they don't open DuoCal. Their app keeps it right later too.
+      await pushToPartnerPhone(after || removed, !!removed).catch(e => console.warn('partner alarm:', e.message));
       return res;
     }
 
@@ -539,6 +542,18 @@
       return { added, updated: 0 };
     }
     throw err('Not available in the web version', 404);
+  }
+  async function pushToPartnerPhone(a, remove) {
+    if (!a) return;
+    const owner = members().find(m => m.id === a.forUser);
+    if (!owner || owner.id === S.me || !owner.alarmCal || !owner.trust.includes(S.me)) return; // not allowed: their own app will do it
+    const key = 'a:' + a.id, path = cal(owner.alarmCal) + '/events';
+    const found = (await listAll(path, { privateExtendedProperty: 'key=' + key, maxResults: '10' })).items.filter(g => g.status !== 'cancelled');
+    if (remove || !a.enabled) { for (const g of found) await gapi('DELETE', path + '/' + encodeURIComponent(g.id)).catch(() => { }); return; }
+    // same body (and fingerprint) their own app would write, on *their* clock
+    const body = withKey(alarmEventBody(a.label || 'Alarm', a.time, a.days || [], a.date || null, 0, owner.settings.tz), key);
+    if (found[0]) await gapi('PUT', path + '/' + encodeURIComponent(found[0].id), body);
+    else await gapi('POST', path, body);
   }
   let rTimer;
   function reconcileSoon() { clearTimeout(rTimer); rTimer = setTimeout(() => reconcile().catch(() => { }), 1500); }
