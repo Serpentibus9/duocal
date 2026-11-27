@@ -75,14 +75,17 @@
     const list = (await listAll('/users/me/calendarList', { minAccessRole: 'reader', showHidden: 'true', maxResults: '250' })).items;
     S.extraMeta = list.filter(c => !/\[duocal:/.test(c.description || '')).map(c => ({ id: c.id, name: String(c.summaryOverride || c.summary || c.id).slice(0, 100), primary: !!c.primary }));
     const writable = id => list.find(c => c.id === id && ['owner', 'writer'].includes(c.accessRole));
+    S.list = list;
     let pin = null; try { pin = JSON.parse(localStorage.getItem(PIN()) || 'null'); } catch { }
-    if (!pin) {
-      // A new device: find the household through MY OWN member record (nobody can fake one made by me).
-      for (const c of list.filter(c => (c.description || '').includes(MARK.data) && ['owner', 'writer'].includes(c.accessRole))) {
-        const recs = await trustedMembersOf(c.id).catch(() => []);
-        const mine = recs.find(m => m.email === email);
-        if (mine && mine.us && writable(mine.us)) { pin = { usId: mine.us, dataId: c.id }; localStorage.setItem(PIN(), JSON.stringify(pin)); break; }
-      }
+    if (!pin && !joinParam) {
+      // A device that doesn't know the household yet (new phone, or an iPhone Home Screen app,
+      // which has its own storage separate from Safari). Look at every household this account
+      // can see. Exactly one with *my own* record in it → that's mine. Several, or only ones I'm
+      // not in yet → let the person choose. Never create a second household silently.
+      const all = await households();
+      const mine = all.filter(h => h.mine && h.usId);
+      if (mine.length === 1 && !all.some(h => !h.mine)) { pin = { usId: mine[0].usId, dataId: mine[0].dataId }; localStorage.setItem(PIN(), JSON.stringify(pin)); }
+      else if (all.length) return { choose: all };
     }
     if (!pin && joinParam) { // an invite link: show who is in that household and wait for a click
       const [usId, dataId] = joinParam.split(',').map(s => s.trim());
@@ -107,6 +110,33 @@
     return { ok: true };
   }
 
+  // Every DuoCal household this account can open, with the people in it (by the trust rule).
+  async function households() {
+    const list = S.list || (await listAll('/users/me/calendarList', { minAccessRole: 'reader', showHidden: 'true', maxResults: '250' })).items;
+    const writable = id => list.find(c => c.id === id && ['owner', 'writer'].includes(c.accessRole));
+    const usCals = list.filter(c => (c.description || '').includes(MARK.us) && ['owner', 'writer'].includes(c.accessRole));
+    const out = [];
+    for (const c of list.filter(c => (c.description || '').includes(MARK.data) && ['owner', 'writer'].includes(c.accessRole)).slice(0, 10)) {
+      const people = await trustedMembersOf(c.id).catch(() => []);
+      if (!people.length) continue;
+      // the shared calendar of this household: as written in a member record, else the only candidate
+      let usId = (people.find(m => m.us && writable(m.us)) || {}).us || null;
+      if (!usId && usCals.length === 1) usId = usCals[0].id;
+      if (!usId) continue;
+      out.push({ dataId: c.id, usId, people: people.map(m => ({ name: m.name, email: m.email })), mine: people.some(m => m.email === S.me),
+        owner: c.accessRole === 'owner' && (writable(usId) || {}).accessRole === 'owner', current: c.id === S.dataId });
+    }
+    return out;
+  }
+  // Delete a household that only I am in and that I own (e.g. one made by mistake).
+  async function deleteHousehold({ usId, dataId }) {
+    const all = await households();
+    const h = all.find(x => x.dataId === dataId && x.usId === usId);
+    if (!h || !h.owner || h.people.some(m => m.email !== S.me) || h.current) throw new Error("This household can't be deleted here.");
+    await gapi('DELETE', cal(usId)); await gapi('DELETE', cal(dataId));
+    S.list = null;
+  }
+
   // Member records of a data calendar, by the trust rule (for the join confirmation)
   async function trustedMembersOf(dataId) {
     const r = await listAll(cal(dataId) + '/events', { sharedExtendedProperty: 't=member', maxResults: '50' });
@@ -119,6 +149,7 @@
       await gapi('POST', '/users/me/calendarList', { id: dataId, selected: false, hidden: true });
     } catch (e) { if (e.status !== 409) throw new Error("Couldn't open the shared calendars. Ask your partner to share them with this Gmail address first."); }
     localStorage.setItem(PIN(), JSON.stringify({ usId, dataId }));
+    clearAllCaches(); S.list = null;
     return init(S.me, null);
   }
   function forgetHousehold() { localStorage.removeItem(PIN()); clearAllCaches(); }
@@ -565,5 +596,5 @@
   // after each sync: my partner may have joined (share my alarms with them), alarms/reminders may have changed
   async function maintain() { if (!S.usId) return; await ensureMe(); await reconcile(); saveCache(); }
 
-  root.GStore = { confirmJoin, forgetHousehold, pendingTrust, trustPartner, maintain, init, createHousehold, sharePartner, sync, reconcile, handle, inviteLink, signOutEverything, me: () => S.me, state: () => S, _test: { toGoogle, fromGoogle, alarmEventBody, withKey } };
+  root.GStore = { households, deleteHousehold, confirmJoin, forgetHousehold, pendingTrust, trustPartner, maintain, init, createHousehold, sharePartner, sync, reconcile, handle, inviteLink, signOutEverything, me: () => S.me, state: () => S, _test: { toGoogle, fromGoogle, alarmEventBody, withKey } };
 })(window);

@@ -1073,6 +1073,7 @@ function renderSettings() {
       </div>
       <div class="card">
         <h2 style="margin-top:0">💑 Your partner</h2>
+        <div id="households-wrap"></div>
         ${p ? `<p>Shared with <b>${esc(p.name)}</b> (${esc(p.email)}). You both see and edit everything.</p>
            <p class="small">${(me().trust || []).includes(p.id) ? `✓ ${esc(p.name)} can set alarms that alert you.` : `${esc(p.name)} can't set alarms for you yet.`}
            ${(p.trust || []).includes(me().id) ? `<br>✓ You can set alarms that alert ${esc(p.name)}.` : `<br>You can't set alarms for ${esc(p.name)} yet: they need to tap "Allow" in their DuoCal (Settings → Your partner).`}</p>
@@ -1102,6 +1103,7 @@ function bindSettings() {
     const c = await choose('Sign out?', 'This device forgets your calendars. Nothing is deleted. You can also cancel DuoCal\'s access at Google (you then allow it again at the next sign-in).', [['revoke', 'Sign out + cancel access'], ['yes', 'Sign out']]);
     if (c) signOut(c === 'revoke');
   };
+  { const w = $('#households-wrap'); if (w) { w.innerHTML = '<details class="how" style="border-top:0;padding-top:0"><summary>Household on this device</summary><div id="households" class="small muted">Looking…</div></details>'; w.querySelector('details').addEventListener('toggle', e => { if (e.target.open) renderHouseholdsCard(); }); } }
   $('#p-trust') && ($('#p-trust').onclick = async () => { try { localStorage.removeItem('duocal.notnow.' + me().id + '.' + partner().id); await GStore.trustPartner(partner().id, true); await reload(); render(); toast('Done'); } catch (e) { toast(e.message); } });
   $('#p-share') && ($('#p-share').onclick = async () => { try { await api('/api/household', { method: 'PUT', body: { partner: $('#p-email').value } }); toast('Shared. Now send them the link below.'); } catch (e) { toast(e.message); } });
   $('#invite') && ($('#invite').onclick = () => { navigator.clipboard?.writeText($('#invite').textContent); toast('Link copied'); });
@@ -1155,6 +1157,7 @@ async function startWith(email, join) {
     const r = await GStore.init(email, join);
     sessionStorage.removeItem('duocal.pendingJoin');
     if (r.confirmJoin) return renderConfirmJoin(email, r.confirmJoin);
+    if (r.choose) return renderChooseHousehold(email, r.choose);
     if (r.lost) return renderLost(email);
     if (r.setup) return renderSetup(email);
     await afterInit();
@@ -1163,6 +1166,52 @@ async function startWith(email, join) {
     $('#app').innerHTML = `<div class="auth"><div class="card"><h1>DuoCal</h1><p>${esc(e.message)}</p><button class="btn primary" id="retry">Try again</button> <button class="btn" id="out">Sign out</button></div></div>`;
     $('#retry').onclick = () => startWith(email, join); $('#out').onclick = () => signOut();
   }
+}
+// More than one household (or one you're not in yet): show them all with their people.
+const peopleLine = h => h.people.map(p => p.email === me_email() ? 'You' : `${p.name} (${p.email})`).join(' & ');
+let _meEmail = null; const me_email = () => _meEmail || (S.data && me().email);
+function renderChooseHousehold(email, list) {
+  _meEmail = email;
+  const card = (h, i) => `<div class="card" style="margin:10px 0;padding:14px">
+      <div class="row" style="flex-wrap:nowrap">${h.people.map(p => `<span class="avatar" style="background:${p.email === email ? 'var(--accent)' : 'var(--accent2)'};color:${p.email === email ? 'var(--on-accent)' : 'var(--on-accent2)'}">${esc(initials(p.name))}</span>`).join('')}
+      <div style="flex:1;min-width:0"><b>${h.people.length > 1 ? 'Shared household' : 'Only you'}</b><div class="small muted" style="overflow-wrap:anywhere">${esc(peopleLine(h))}</div></div></div>
+      <div class="actions" style="margin-top:10px"><div class="spacer"></div><button class="btn ${h.people.length > 1 ? 'primary' : ''} sm" data-use="${i}">Use this one</button></div></div>`;
+  // the shared ones first
+  list = [...list].sort((a, b) => b.people.length - a.people.length);
+  $('#app').innerHTML = `<div class="auth"><div class="card">
+    <h1><img src="icon.svg" alt="">Which household?</h1>
+    <p class="small">Signed in as <b>${esc(email)}</b>. This account is in ${list.length > 1 ? 'more than one DuoCal household' : 'this DuoCal household'}. Choose the one you share with your partner:</p>
+    ${list.map(card).join('')}
+    <p class="muted small">Not sure? Pick the one that shows both of you. You can switch later in Settings → Household.</p>
+  </div></div>`;
+  $$('[data-use]').forEach(b => b.onclick = async () => {
+    const h = list[+b.dataset.use];
+    if (!h.mine && !(await choose('Join this household?', `It belongs to ${peopleLine(h)}. Only join if this is your partner.`, [['yes', 'Yes, join']]))) return;
+    b.disabled = true;
+    try { const r = await GStore.confirmJoin(h); if (r.ok) await afterInit(); else startWith(email, null); } catch (e) { toast(e.message); b.disabled = false; }
+  });
+}
+// Settings → Household: every household this account can see; switch, or delete a mistaken one.
+async function renderHouseholdsCard() {
+  const el = $('#households'); if (!el) return;
+  let list;
+  try { list = await GStore.households(); } catch (e) { el.innerHTML = `<p class="muted small">${esc(e.message)}</p>`; return; }
+  if (!$('#households')) return;
+  el.innerHTML = list.map((h, i) => `<div class="row" style="padding:8px 0;border-top:1px solid var(--line2);flex-wrap:nowrap">
+      <div style="flex:1;min-width:0" class="small"><b>${h.current ? '✓ In use' : h.people.length > 1 ? 'Shared household' : 'Only you'}</b><div class="muted" style="overflow-wrap:anywhere">${esc(peopleLine(h))}</div></div>
+      ${h.current ? '' : `<button class="btn sm" data-sw="${i}">Switch</button>`}
+      ${!h.current && h.owner && h.people.length === 1 ? `<button class="btn sm danger" data-del="${i}">Delete</button>` : ''}
+    </div>`).join('') || '<p class="muted small">Only this household.</p>';
+  $$('[data-sw]', el).forEach(b => b.onclick = async () => {
+    const h = list[+b.dataset.sw];
+    if (!(await choose('Switch household?', `Use the household of ${peopleLine(h)} on this device.`, [['yes', 'Switch']]))) return;
+    try { const r = await GStore.confirmJoin(h); if (r.ok) { await afterInit(); toast('Switched'); } } catch (e) { toast(e.message); }
+  });
+  $$('[data-del]', el).forEach(b => b.onclick = async () => {
+    const h = list[+b.dataset.del];
+    if (!(await choose('Delete this household?', 'This permanently deletes its two calendars ("Us · DuoCal" and "DuoCal · data") from your Google account, with everything in them. It cannot be undone. Your shared household is not touched.', [['yes', 'Delete forever']]))) return;
+    try { await GStore.deleteHousehold(h); toast('Deleted'); renderHouseholdsCard(); } catch (e) { toast(e.message); }
+  });
 }
 // Joining is never automatic: show exactly whose household this is.
 function renderConfirmJoin(email, j) {
