@@ -942,7 +942,7 @@ function renderCounters() {
   return `<div class="page">
     <div class="row"><h1>Counters</h1><div class="spacer"></div><button class="btn primary" id="add-counter">+ New counter</button></div>
     <p class="muted">Count the time since something happened (your wedding, quitting sugar) or until something comes (a trip, a birthday). Shared with ${partner() ? esc(partner().name) : 'your partner'}.</p>
-    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr))">
     ${list.map(c => `<div class="card counter"><div class="head"><span class="dot" style="background:${PALETTE[c.color ?? 3]}"></span><b style="flex:1">${esc(c.title)}</b><button class="btn sm" data-edit-counter="${esc(c.id)}">Edit</button></div><div data-counter="${esc(c.id)}">${counterHTML(c)}</div></div>`).join('') || '<p class="muted">No counters yet.</p>'}
     </div></div>`;
 }
@@ -979,7 +979,7 @@ function renderTransfer() {
   const how = (title, steps) => `<details class="how"><summary>${title}</summary><ol class="small">${steps.map(s => `<li>${s}</li>`).join('')}</ol></details>`;
   return `<div class="page">
     <h1>Import / Export</h1>
-    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))">
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr))">
       <div class="card">
         <h2 style="margin-top:0">${ICON.data} Bring events in</h2>
         <p class="small">Pick one or more files. DuoCal reads <b>.ics</b>, Google's <b>.zip</b>, <b>.csv</b> and <b>Excel (.xlsx)</b>. They're copied into "Us · DuoCal". Files stay on your device; nothing is uploaded anywhere.</p>
@@ -1050,7 +1050,7 @@ function renderSettings() {
   const zones = (Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : [deviceTz()]);
   return `<div class="page">
     <h1>Settings</h1>
-    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))">
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr))">
       <div class="card">
         <h2 style="margin-top:0">Appearance</h2>
         <div class="seg" id="theme">${[['light', '☀ Light'], ['dark', '🌙 Dark'], ['system', '🖥 Match device']].map(([v, l]) => `<button class="${s.theme === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>
