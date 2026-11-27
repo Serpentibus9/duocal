@@ -650,16 +650,25 @@ function openAlarmEditor(a) {
 const Sound = {
   ctx: null, timer: null,
   unlock() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (this.ctx.state === 'suspended') this.ctx.resume(); },
-  beep(freq, at, len) {
+  // a soft bell: sine tone with a quick attack and a long gentle fade
+  beep(freq, at, len, vol = 0.35) {
     const o = this.ctx.createOscillator(), g = this.ctx.createGain();
     o.type = 'sine'; o.frequency.value = freq; o.connect(g); g.connect(this.ctx.destination);
-    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(0.35, at + 0.02); g.gain.linearRampToValueAtTime(0, at + len);
+    g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(vol, at + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, at + len);
     o.start(at); o.stop(at + len + 0.05);
   },
+  // gentle wake-up: a three-note chime every 2.5 s, starting very quiet and
+  // growing to a moderate level over ~30 s; it stops by itself after 60 s
   start() {
     this.unlock(); this.stop();
-    const play = () => { const t = this.ctx.currentTime; [0, 0.25, 0.5].forEach((d, i) => this.beep(i === 2 ? 1046 : 880, t + d, 0.18)); };
-    play(); this.timer = setInterval(play, 1200);
+    const began = Date.now();
+    const play = () => {
+      if (Date.now() - began > 60e3) return this.stop();
+      const vol = 0.04 + Math.min(1, (Date.now() - began) / 30e3) * 0.16; // 0.04 → 0.20
+      const t = this.ctx.currentTime;
+      [[523, 0], [659, 0.35], [784, 0.7]].forEach(([f, d]) => this.beep(f, t + d, 1.4, vol)); // C-E-G
+    };
+    play(); this.timer = setInterval(play, 2500);
   },
   stop() { clearInterval(this.timer); this.timer = null; },
 };
@@ -674,10 +683,16 @@ function ring(label, snoozeMin = 9) {
   Sound.start();
   const d = document.createElement('div'); d.className = 'ringing';
   d.innerHTML = `<div style="font-size:22px">⏰ ${esc(label)}</div><div class="clock" data-clock="hm"></div>
-    <div class="row" style="justify-content:center"><button class="btn" id="r-snooze">Snooze ${snoozeMin} min</button><button class="btn" id="r-stop">Stop</button></div>`;
+    <button class="btn" id="r-stop" style="font-size:26px;padding:18px 60px">Stop</button>
+    <button class="btn" id="r-snooze" style="font-size:16px;padding:10px 24px">Snooze ${snoozeMin} min</button>
+    <div class="small" style="opacity:.85">Tap anywhere or press Esc to stop</div>`;
   document.body.append(d); tick();
-  const stop = () => { Sound.stop(); d.remove(); };
-  $('#r-stop', d).onclick = stop;
+  // Easy to stop: the Stop button, a tap anywhere else, Esc — and it ends by itself after a minute.
+  const onKey = e => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') stop(); };
+  const auto = setTimeout(() => stop(), 60e3);
+  function stop() { Sound.stop(); clearTimeout(auto); document.removeEventListener('keydown', onKey); d.remove(); }
+  document.addEventListener('keydown', onKey);
+  d.addEventListener('click', e => { if (!e.target.closest('#r-snooze')) stop(); });
   $('#r-snooze', d).onclick = () => {
     const sn = JSON.parse(localStorage.getItem('duocal.snoozes') || '[]');
     sn.push({ at: Date.now() + snoozeMin * 6e4, label, snoozeMin });
