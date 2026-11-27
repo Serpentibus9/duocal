@@ -1169,7 +1169,7 @@ async function startWith(email, join) {
 }
 // More than one household (or one you're not in yet): show them all with their people.
 const peopleLine = h => h.people.map(p => p.email === me_email() ? 'You' : `${p.name} (${p.email})`).join(' & ');
-let _meEmail = null; const me_email = () => _meEmail || (S.data && me().email);
+let _meEmail = null; const me_email = () => (S.data && me().email) || _meEmail; // the signed-in person
 function renderChooseHousehold(email, list) {
   _meEmail = email;
   const card = (h, i) => `<div class="card" style="margin:10px 0;padding:14px">
