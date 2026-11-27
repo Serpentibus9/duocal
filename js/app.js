@@ -1076,13 +1076,13 @@ function renderSettings() {
         <div id="households-wrap"></div>
         ${p ? `<p>Shared with <b>${esc(p.name)}</b> (${esc(p.email)}). You both see and edit everything.</p>
            <p class="small">${(me().trust || []).includes(p.id) ? `✓ ${esc(p.name)} can set alarms that alert you.` : `${esc(p.name)} can't set alarms for you yet.`}
-           ${(p.trust || []).includes(me().id) ? `<br>✓ You can set alarms that alert ${esc(p.name)}.` : `<br>You can't set alarms for ${esc(p.name)} yet: they need to tap "Allow" in their DuoCal (Settings → Your partner).`}</p>
+           ${(p.trust || []).includes(me().id) ? `<br>✓ You can set alarms that alert ${esc(p.name)}.` : `<br>Finishing pairing… this updates by itself within 30 seconds.`}</p>
            ${(me().trust || []).includes(p.id) ? '' : `<button class="btn primary sm" id="p-trust">Let ${esc(p.name)} set my alarms</button>`}`
-        : `<p class="small"><b>1.</b> Share with your partner's Gmail (Google emails them):</p>
-           <div class="row"><input type="email" id="p-email" placeholder="partner@gmail.com" style="flex:1"><button class="btn primary" id="p-share">Share</button></div>
-           <p class="small" style="margin-top:12px"><b>2.</b> Send them this link (WhatsApp, email…). They open it on their phone and sign in with that Gmail:</p>
-           <code class="copy" id="invite">${esc(S.data.household.invite || '')}</code>
-           <p class="muted small">The link alone gives no access: Google only lets in the Gmail you shared with.</p>`}
+        : `<p class="small">Not paired yet. Your partner types a 6-digit code from your screen, once.</p>
+           <button class="btn primary" id="p-pair">${ICON.heart} Pair with my partner</button>`}
+        <details class="how" style="margin-top:10px"><summary>Delete all DuoCal data</summary>
+          <p class="small">Deletes the DuoCal calendars you own (events, alarms, sleep, counters) from your Google account and signs you out. Cannot be undone.</p>
+          <button class="btn danger sm" id="p-wipe">Delete everything</button></details>
       </div>
       <div class="card">
         <h2 style="margin-top:0">📱 Install on iPhone, Mac, PC</h2>
@@ -1105,6 +1105,11 @@ function bindSettings() {
   };
   { const w = $('#households-wrap'); if (w) { w.innerHTML = '<details class="how" style="border-top:0;padding-top:0"><summary>Household on this device</summary><div id="households" class="small muted">Looking…</div></details>'; w.querySelector('details').addEventListener('toggle', e => { if (e.target.open) renderHouseholdsCard(); }); } }
   $('#p-trust') && ($('#p-trust').onclick = async () => { try { localStorage.removeItem('duocal.notnow.' + me().id + '.' + partner().id); await GStore.trustPartner(partner().id, true); await reload(); render(); toast('Done'); } catch (e) { toast(e.message); } });
+  $('#p-pair') && ($('#p-pair').onclick = () => renderHostPairing(me().email));
+  $('#p-wipe') && ($('#p-wipe').onclick = async () => {
+    if (!(await choose('Delete all DuoCal data?', 'Your DuoCal calendars and everything in them are deleted from your Google account, and you are signed out. This cannot be undone.', [['yes', 'Delete everything']]))) return;
+    try { await GStore.wipeEverything(); await signOut(true); toast('All DuoCal data deleted'); } catch (e) { toast(e.message); }
+  });
   $('#p-share') && ($('#p-share').onclick = async () => { try { await api('/api/household', { method: 'PUT', body: { partner: $('#p-email').value } }); toast('Shared. Now send them the link below.'); } catch (e) { toast(e.message); } });
   $('#invite') && ($('#invite').onclick = () => { navigator.clipboard?.writeText($('#invite').textContent); toast('Link copied'); });
 }
@@ -1138,18 +1143,131 @@ function renderSetup(email) {
   $('#app').innerHTML = `<div class="auth"><div class="card">
     <h1><img src="icon.svg" alt="">Welcome</h1>
     <p>Signed in as <b>${esc(email)}</b>.</p>
-    <p class="small"><b>First of the two of you?</b> Create your shared calendar. You can add your partner now or later.</p>
-    <label class="f">Partner's Gmail (optional)<input type="email" id="s-partner" placeholder="partner@gmail.com"></label>
-    <button class="btn primary" id="s-create" style="width:100%;padding:11px">Create "Us · DuoCal"</button>
-    <p class="muted small" style="margin-top:14px"><b>Your partner already set it up?</b> Open the invite link they sent you, on this device.</p>
-    <button class="btn sm" id="s-out">Use a different Google account</button>
+    <p class="small">DuoCal is for the two of you. One of you starts it, the other types a code. That's all, once, for good.</p>
+    <button class="btn primary big-choice" id="s-host">${ICON.heart}<span><b>Start our DuoCal</b><small>I'm the first one. My partner will type a code.</small></span></button>
+    <button class="btn big-choice" id="s-guest">${ICON.calendar}<span><b>I have a code</b><small>My partner started it and sees a code.</small></span></button>
+    <button class="btn sm" id="s-out" style="margin-top:10px">Use a different Google account</button>
   </div></div>`;
-  $('#s-create').onclick = async () => {
-    $('#s-create').disabled = true; $('#s-create').textContent = 'Creating…';
-    try { await GStore.createHousehold($('#s-partner').value.trim() || null); await afterInit(); }
-    catch (e) { toast(e.message); $('#s-create').disabled = false; $('#s-create').textContent = 'Create "Us · DuoCal"'; }
-  };
+  $('#s-host').onclick = () => renderHostPairing(email);
+  $('#s-guest').onclick = () => renderGuestPairing(email);
   $('#s-out').onclick = () => signOut();
+}
+// ----- the first person: type the partner's Gmail, then show the rotating code -----
+function renderHostPairing(email, partner) {
+  if (!partner) {
+    $('#app').innerHTML = `<div class="auth"><div class="card">
+      <h1><img src="icon.svg" alt="">Your partner</h1>
+      <label class="f">Your partner's Gmail<input type="email" id="hp-email" placeholder="partner@gmail.com" autocomplete="off" autocapitalize="off"></label>
+      <p class="muted small">Only this Gmail will be able to pair with you. Nobody else can join your DuoCal.</p>
+      <div class="actions"><button class="btn" id="hp-back">Back</button><div class="spacer"></div><button class="btn primary" id="hp-go">Next</button></div>
+    </div></div>`;
+    $('#hp-back').onclick = () => S.data ? (S.page = 'settings', render()) : renderSetup(email);
+    $('#hp-go').onclick = () => { const v = $('#hp-email').value.trim().toLowerCase(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return toast("Type your partner's Gmail"); renderHostPairing(email, v); };
+    return;
+  }
+  let stopped = false, until = 0, codeTimer, doneTimer;
+  const stop = () => { stopped = true; clearTimeout(codeTimer); clearInterval(doneTimer); clearInterval(ringTimer); };
+  $('#app').innerHTML = `<div class="auth"><div class="card" style="text-align:center">
+    <h1 style="justify-content:center"><img src="icon.svg" alt="">Pairing code</h1>
+    <p class="small">Tell <b>${esc(partner)}</b> this code. On their phone: DuoCal → sign in → <b>I have a code</b>.</p>
+    <div class="pair-code" id="hp-code">······</div>
+    <div class="pair-ring"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5" class="track"/><circle cx="18" cy="18" r="15.5" class="left" id="hp-left"/></svg><span id="hp-secs">30</span></div>
+    <p class="muted small" id="hp-status">Preparing…</p>
+    <div class="actions"><button class="btn" id="hp-cancel">Cancel</button></div>
+  </div></div>`;
+  const ringTimer = setInterval(() => {
+    const left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    $('#hp-secs') && ($('#hp-secs').textContent = left);
+    $('#hp-left') && $('#hp-left').style.setProperty('stroke-dashoffset', String(97.4 * (1 - left / 30)));
+  }, 250);
+  const nextCode = async () => {
+    if (stopped) return;
+    try {
+      const r = await GStore.pairingCode(partner);
+      if (stopped) return;
+      until = r.until;
+      $('#hp-code').textContent = r.code.slice(0, 3) + ' ' + r.code.slice(3);
+      $('#hp-status').textContent = `Waiting for ${partner}… (open for ${Math.max(1, Math.round((r.expires - Date.now()) / 60e3))} more minutes)`;
+      codeTimer = setTimeout(nextCode, Math.max(1000, r.until - Date.now()));
+    } catch (e) { $('#hp-status').textContent = e.message; if (/already paired/i.test(e.message)) { stop(); afterInit(); } }
+  };
+  nextCode();
+  // live: the moment the partner types the code, this screen knows
+  doneTimer = setInterval(async () => {
+    if (stopped) return;
+    try { if (await GStore.pairingDone()) { stop(); pairedScreen(partner); } } catch { }
+  }, 3000);
+  $('#hp-cancel').onclick = async () => { stop(); await GStore.cancelPairing(); S.data ? (S.page = 'settings', afterInit()) : renderSetup(email); };
+}
+// ----- the second person: find the request, type the code -----
+function renderGuestPairing(email) {
+  let stopped = false, poll;
+  const stop = () => { stopped = true; clearInterval(poll); };
+  const draw = reqs => {
+    if (!reqs.length) {
+      $('#app').innerHTML = `<div class="auth"><div class="card">
+        <h1><img src="icon.svg" alt="">Looking for your partner…</h1>
+        <div class="pair-wait"></div>
+        <p class="small">Ask your partner to tap <b>Start our DuoCal</b> and type your Gmail: <b>${esc(email)}</b>. This screen updates by itself.</p>
+        <details class="how"><summary>Still nothing after a minute?</summary><ol class="small">
+          <li>Check that your partner typed exactly <b>${esc(email)}</b>.</li>
+          <li>Your Google account may not add invitations by itself. Open the email from Google about <b>"DuoCal pairing request"</b> (or "shared a calendar") and tap <b>Yes</b> / <b>Add</b>. Then come back here.</li>
+        </ol></details>
+        <div class="actions"><button class="btn" id="gp-back">Back</button><div class="spacer"></div><button class="btn" id="gp-again">Check now</button></div>
+      </div></div>`;
+      $('#gp-back').onclick = () => { stop(); renderSetup(email); };
+      $('#gp-again').onclick = check;
+      return;
+    }
+    const r = reqs[0];
+    $('#app').innerHTML = `<div class="auth"><div class="card" style="text-align:center">
+      <h1 style="justify-content:center"><img src="icon.svg" alt="">Pair with your partner</h1>
+      <p><b>${esc(r.host)}</b> wants to share DuoCal with you.</p>
+      <p class="small muted">Only continue if this is your partner.</p>
+      <input class="pair-input" id="gp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000" aria-label="6-digit code">
+      <p class="small muted">Type the 6-digit code on their screen. It changes every 30 seconds.</p>
+      <div class="actions"><button class="btn" id="gp-back">Back</button><div class="spacer"></div><button class="btn primary" id="gp-go">Pair</button></div>
+    </div></div>`;
+    stop();
+    const inp = $('#gp-code');
+    inp.oninput = () => { const d = inp.value.replace(/\D/g, '').slice(0, 6); inp.value = d.length > 3 ? d.slice(0, 3) + ' ' + d.slice(3) : d; if (d.length === 6) $('#gp-go').click(); };
+    setTimeout(() => inp.focus(), 50);
+    $('#gp-back').onclick = () => renderSetup(email);
+    $('#gp-go').onclick = async () => {
+      const b = $('#gp-go'); if (b.disabled) return; b.disabled = true; b.textContent = 'Checking…';
+      try { await GStore.acceptPairing(r, inp.value); pairedScreen(r.host); }
+      catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Pair'; inp.value = ''; inp.focus(); }
+    };
+  };
+  const check = async () => { if (stopped) return; try { const reqs = await GStore.findPairingRequests(); if (!stopped) draw(reqs); } catch (e) { toast(e.message); } };
+  draw([]); check(); poll = setInterval(check, 4000);
+}
+function pairedScreen(partner) {
+  $('#app').innerHTML = `<div class="auth"><div class="card" style="text-align:center">
+    <div class="pair-done">${ICON.heart}</div>
+    <h1 style="justify-content:center">Paired!</h1>
+    <p>You and <b>${esc(partner)}</b> now share DuoCal. This stays: you won't need a code again, on any device.</p>
+    <div class="actions" style="justify-content:center"><button class="btn primary" id="pd-go">Open DuoCal</button></div>
+  </div></div>`;
+  $('#pd-go').onclick = () => afterInit();
+}
+// ----- fresh start: old DuoCal data from before pairing -----
+function renderFreshStart(email, cals) {
+  const mine = cals.filter(c => c.owner), shared = cals.filter(c => !c.owner);
+  $('#app').innerHTML = `<div class="auth"><div class="card">
+    <h1><img src="icon.svg" alt="">Fresh start</h1>
+    <p class="small">DuoCal now pairs with a code instead of links. Your old DuoCal data is still in your Google account:</p>
+    <ul class="small">${cals.map(c => `<li>${esc(c.name)} ${c.owner ? '<span class="muted">(yours: will be deleted)</span>' : '<span class="muted">(shared with you: removed from your list)</span>'}</li>`).join('')}</ul>
+    <p class="small"><b>Deleting cannot be undone.</b> Your other Google calendars are not touched.</p>
+    <div class="actions"><button class="btn" id="fs-keep">Not now</button><div class="spacer"></div><button class="btn primary" id="fs-wipe">Delete and start fresh</button></div>
+  </div></div>`;
+  $('#fs-keep').onclick = () => { sessionStorage.setItem('duocal.freshLater', '1'); renderSetup(email); };
+  $('#fs-wipe').onclick = async () => {
+    if (!(await choose('Delete old DuoCal data?', `This deletes ${mine.length} calendar(s) you own and removes ${shared.length} shared one(s) from your list. It cannot be undone.`, [['yes', 'Delete']]))) return;
+    $('#fs-wipe').disabled = true; $('#fs-wipe').textContent = 'Deleting…';
+    try { await GStore.wipeEverything(); toast('Old DuoCal data deleted'); renderSetup(email); }
+    catch (e) { toast(e.message); $('#fs-wipe').disabled = false; $('#fs-wipe').textContent = 'Delete and start fresh'; }
+  };
 }
 async function startWith(email, join) {
   $('#app').innerHTML = '<div class="auth"><div class="card"><h1><img src="icon.svg" alt="">DuoCal</h1><p class="muted">Loading your calendars…</p></div></div>';
@@ -1159,7 +1277,10 @@ async function startWith(email, join) {
     if (r.confirmJoin) return renderConfirmJoin(email, r.confirmJoin);
     if (r.choose) return renderChooseHousehold(email, r.choose);
     if (r.lost) return renderLost(email);
-    if (r.setup) return renderSetup(email);
+    if (r.setup) {
+      const old = sessionStorage.getItem('duocal.freshLater') ? [] : (await GStore.oldCalendars().catch(() => [])).filter(c => c.old);
+      return old.length ? renderFreshStart(email, old) : renderSetup(email);
+    }
     await afterInit();
   } catch (e) {
     if (e.auth) return renderAuth();
@@ -1334,6 +1455,13 @@ addEventListener('resize', () => { if (phone() !== wasPhone) { wasPhone = phone(
   if (window.top !== window.self) { document.body.innerHTML = ''; return; }
   applyTheme();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js', { scope: './' }).catch(() => { });
+  // Version 2 (pairing): forget everything this device remembered, so both of you sign in fresh.
+  if (localStorage.getItem('duocal.appVersion') !== '2') {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('duocal.') && k !== 'duocal.theme') localStorage.removeItem(k);
+    for (const k of Object.keys(sessionStorage)) if (k.startsWith('duocal.')) sessionStorage.removeItem(k);
+    if (window.duocalDesktop) await window.duocalDesktop.auth.signOut(false).catch(() => { });
+    localStorage.setItem('duocal.appVersion', '2');
+  }
   if (GAuth.desktopInit) await GAuth.desktopInit(); // DuoCal for Windows: ask the app for a pass
   const r = await GAuth.handleRedirect();
   if (r && r.error) {

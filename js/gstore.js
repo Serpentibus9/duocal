@@ -13,7 +13,8 @@
 // the same requests the old PC server did (handle('/api/...')), so the UI barely changed.
 (function (root) {
   const API = 'https://www.googleapis.com/calendar/v3';
-  const MARK = { us: '[duocal:us]', data: '[duocal:data]', alarms: e => `[duocal:alarms:${e}]` };
+  const MARK = { us: '[duocal2:us]', data: '[duocal2:data]', alarms: e => `[duocal2:alarms:${e}]` };
+  const OLD_MARK = /\[duocal:(us|data|alarms:[^\]]*)\]/; // calendars from before pairing (to wipe)
   const TO_GCOLOR = ['9', '1', '7', '2', '10', '5', '6', '11'];
   const FROM_GCOLOR = { 1: 1, 2: 3, 3: 1, 4: 7, 5: 5, 6: 6, 7: 2, 8: 0, 9: 0, 10: 4, 11: 7 };
   const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
@@ -73,7 +74,7 @@
     S = blank(); S.me = email;
     loadCache();
     const list = (await listAll('/users/me/calendarList', { minAccessRole: 'reader', showHidden: 'true', maxResults: '250' })).items;
-    S.extraMeta = list.filter(c => !/\[duocal:/.test(c.description || '')).map(c => ({ id: c.id, name: String(c.summaryOverride || c.summary || c.id).slice(0, 100), primary: !!c.primary }));
+    S.extraMeta = list.filter(c => !/\[duocal2?:/.test(c.description || '')).map(c => ({ id: c.id, name: String(c.summaryOverride || c.summary || c.id).slice(0, 100), primary: !!c.primary }));
     const writable = id => list.find(c => c.id === id && ['owner', 'writer'].includes(c.accessRole));
     S.list = list;
     let pin = null; try { pin = JSON.parse(localStorage.getItem(PIN()) || 'null'); } catch { }
@@ -86,14 +87,6 @@
       const mine = all.filter(h => h.mine && h.usId);
       if (mine.length === 1 && !all.some(h => !h.mine)) { pin = { usId: mine[0].usId, dataId: mine[0].dataId }; localStorage.setItem(PIN(), JSON.stringify(pin)); }
       else if (all.length) return { choose: all };
-    }
-    if (!pin && joinParam) { // an invite link: show who is in that household and wait for a click
-      const [usId, dataId] = joinParam.split(',').map(s => s.trim());
-      if (!/^[\w.@+-]{5,200}$/.test(usId || '') || !/^[\w.@+-]{5,200}$/.test(dataId || '')) throw new Error('That invite link looks broken. Ask for a new one.');
-      let people;
-      try { people = await trustedMembersOf(dataId); } catch { throw new Error("Couldn't open the shared calendars. Ask your partner to share them with this Gmail address first (DuoCal → Settings → Your partner)."); }
-      if (!people.length) throw new Error("That invite link doesn't lead to a DuoCal household.");
-      return { confirmJoin: { usId, dataId, people: people.map(m => ({ name: m.name, email: m.email })) } };
     }
     if (!pin) { S.usId = S.dataId = null; return { setup: true }; }
     const us = writable(pin.usId), data = writable(pin.dataId);
@@ -164,13 +157,13 @@
     localStorage.setItem(PIN(), JSON.stringify({ usId: us.id, dataId: data.id }));
     return init(S.me, null);
   }
-  async function sharePartner(email, ids = [S.usId, S.dataId, S.myAlarmCal].filter(Boolean)) {
+  async function sharePartner(email, ids = [S.usId, S.dataId, S.myAlarmCal].filter(Boolean), notify = true) {
     email = String(email || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Enter your partner's Gmail address.");
     if (email === S.me) throw new Error("That's your own address.");
-    for (const id of ids) await gapi('POST', cal(id) + '/acl', { role: 'writer', scope: { type: 'user', value: email } }, { sendNotifications: 'true' });
+    for (const id of ids) await gapi('POST', cal(id) + '/acl', { role: 'writer', scope: { type: 'user', value: email } }, { sendNotifications: notify ? 'true' : 'false' });
   }
-  const inviteLink = () => S.usId ? `${GAuth.appUrl()}#join=${encodeURIComponent(S.usId)},${encodeURIComponent(S.dataId)}` : null;
+  const inviteLink = () => null; // links are gone: partners pair with a code (see "pairing")
 
   // ---------- sync (polling: every 30 s while open) ----------
   async function pullCalendar(key, id) {
@@ -464,7 +457,7 @@
     return {
       me: { id: me.id, name: me.name, email: me.email, settings: me.settings, trust: me.trust || [] },
       members: ms.map(m => ({ id: m.id, name: m.name, email: m.email, settings: m.settings, trust: m.trust })),
-      household: { id: S.usId, name: S.usName, invite: inviteLink(), full: ms.length >= 2 },
+      household: { id: S.usId, name: S.usName, full: ms.length >= 2, pairing: pendingPairing() },
       events: [...usEvents(), ...extraEvents()], alarms: recs.alarms, counters: recs.counters, sleepLogs: recs.sleepLogs,
       subscriptions: [], extraCalendars: S.extraMeta,
     };
@@ -593,8 +586,142 @@
 
   async function signOutEverything({ revoke }) { clearAllCaches(); S = blank(); await GAuth.signOut({ revoke }); }
 
+  // ===================== PAIRING (like an authenticator code) =====================
+  // The first person ("host") creates the household, shares it with the partner's Gmail
+  // only, and sends a pairing request to that Gmail as a calendar invitation. The host's
+  // screen shows a 6-digit code that changes every 30 s. The request holds only a slow,
+  // salted fingerprint of the code (PBKDF2-SHA256, 200 000 rounds), never the code itself.
+  // The partner's app finds the request in their own calendar and checks the typed code.
+  // When it matches, they're paired for good: both apps trust each other's alarms, the
+  // request is removed, and nobody else keeps access.
+  const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  const unhex = h => new Uint8Array((h.match(/../g) || []).map(x => parseInt(x, 16)));
+  async function fingerprint(code, saltHex) {
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(code)), 'PBKDF2', false, ['deriveBits']);
+    return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: unhex(saltHex), iterations: 200000 }, key, 256));
+  }
+  function newCode() { const a = new Uint32Array(1); let n; do { crypto.getRandomValues(a); n = a[0]; } while (n >= 4294000000); return String(n % 1000000).padStart(6, '0'); }
+  const PAIR_KEY = () => 'duocal.pairing.' + S.me;
+  function pendingPairing() { try { const p = JSON.parse(localStorage.getItem(PAIR_KEY()) || 'null'); return p && p.exp > Date.now() ? { for: p.for, exp: p.exp } : null; } catch { return null; } }
+  const pairBody = (partner, code, salt, h, h0, exp) => ({
+    summary: '🔗 DuoCal pairing request', description: 'Open DuoCal and type the 6-digit code shown on your partner\'s screen.',
+    start: { dateTime: new Date().toISOString() }, end: { dateTime: new Date(exp).toISOString() },
+    attendees: [{ email: partner }], guestsCanModify: false, guestsCanInviteOthers: false, guestsCanSeeOtherGuests: false,
+    transparency: 'transparent', reminders: { useDefault: false, overrides: [] },
+    extendedProperties: { shared: { t: 'pair', host: S.me, for: partner, us: S.usId, data: S.dataId, salt, h, h0: h0 || '', exp: String(exp) } },
+  });
+  // Host: start (or continue) pairing with this Gmail. Returns { code, until } — call again every 30 s for a fresh code.
+  async function pairingCode(partnerEmail) {
+    partnerEmail = String(partnerEmail || '').trim().toLowerCase();
+    if (!SAFE_EMAIL.test(partnerEmail)) throw new Error("Type your partner's Gmail address.");
+    if (partnerEmail === S.me) throw new Error("That's your own address.");
+    if (!S.usId) await createHousehold(null);
+    if (members().length >= 2) throw new Error('You are already paired.');
+    let p = null; try { p = JSON.parse(localStorage.getItem(PAIR_KEY()) || 'null'); } catch { }
+    const fresh = !p || p.for !== partnerEmail || p.exp < Date.now() || !p.eventId;
+    if (fresh) { await sharePartner(partnerEmail, [S.usId, S.dataId], false); p = { for: partnerEmail, exp: Date.now() + 15 * 60e3, cur: '', eventId: null }; }
+    const code = newCode(), salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+    const h = await fingerprint(code, salt);
+    const body = pairBody(partnerEmail, code, salt, h, p.cur, p.exp); // the code from 30 s ago still counts
+    let g;
+    if (p.eventId) { try { g = await gapi('PUT', cal(S.dataId) + '/events/' + encodeURIComponent(p.eventId), body, { sendUpdates: 'none' }); } catch (e) { if (e.status !== 404 && e.status !== 410) throw e; } }
+    if (!g) g = await gapi('POST', cal(S.dataId) + '/events', body, { sendUpdates: 'all' }); // first time: Google tells the partner
+    S.raw.data[g.id] = g;
+    localStorage.setItem(PAIR_KEY(), JSON.stringify({ for: partnerEmail, exp: p.exp, cur: salt + ':' + h, eventId: g.id }));
+    return { code, until: Date.now() + 30e3, expires: p.exp };
+  }
+  async function cancelPairing() {
+    let p = null; try { p = JSON.parse(localStorage.getItem(PAIR_KEY()) || 'null'); } catch { }
+    localStorage.removeItem(PAIR_KEY());
+    if (p && p.eventId) await gapi('DELETE', cal(S.dataId) + '/events/' + encodeURIComponent(p.eventId), null, { sendUpdates: 'none' }).catch(() => { });
+  }
+  // Host: has the partner finished? (their own member record appears in our household)
+  async function pairingDone() {
+    let p = null; try { p = JSON.parse(localStorage.getItem(PAIR_KEY()) || 'null'); } catch { }
+    if (!p) return members().length >= 2;
+    await pullCalendar('data', S.dataId);
+    const partner = members().find(m => m.id === p.for);
+    if (!partner) return false;
+    // paired: they can set my alarms, the request goes, and only the two of us keep access
+    const meRec = myMember();
+    if (meRec && !meRec.trust.includes(partner.id)) await trustPartner(partner.id, true);
+    await cancelPairing();
+    await onlyTheTwoOfUs();
+    saveCache();
+    return true;
+  }
+  async function onlyTheTwoOfUs() {
+    const keep = new Set(members().map(m => m.id));
+    for (const id of [S.usId, S.dataId, S.myAlarmCal]) {
+      if (!id) continue;
+      let acl; try { acl = await gapi('GET', cal(id) + '/acl'); } catch { continue; } // only the owner can read sharing
+      for (const r of acl.items || []) if (r.scope && r.scope.type === 'user' && r.role !== 'owner' && !keep.has(lower(r.scope.value)))
+        await gapi('DELETE', cal(id) + '/acl/' + encodeURIComponent(r.id)).catch(() => { });
+    }
+  }
+  // Partner: requests addressed to me — in my own calendar (Google added the invitation),
+  // or inside a DuoCal calendar I added from Google's "shared a calendar" email.
+  async function findPairingRequests() {
+    const reqs = new Map();
+    const take = g => {
+      const x = P(g);
+      if (x.t !== 'pair' || lower(x.for) !== S.me || !(+x.exp > Date.now()) || !SAFE_EMAIL.test(lower(x.host))) return;
+      if (lower(creatorOf(g)) !== lower(x.host) && creatorOf(g)) return; // made by the person it claims
+      if (!/^[\w.@+-]{5,200}$/.test(x.us || '') || !/^[\w.@+-]{5,200}$/.test(x.data || '')) return;
+      reqs.set(x.data, { host: lower(x.host), us: x.us, data: x.data, salt: x.salt, h: x.h, h0: x.h0, exp: +x.exp, eventId: g.id });
+    };
+    try { (await listAll('/calendars/primary/events', { sharedExtendedProperty: 't=pair', maxResults: '50', timeMin: new Date(Date.now() - 864e5).toISOString() })).items.forEach(take); } catch { }
+    const list = (await listAll('/users/me/calendarList', { minAccessRole: 'reader', showHidden: 'true', maxResults: '250' })).items;
+    for (const c of list.filter(c => (c.description || '').includes(MARK.data)).slice(0, 5)) {
+      try { (await listAll(cal(c.id) + '/events', { sharedExtendedProperty: 't=pair', maxResults: '10' })).items.filter(g => madeIn(g, c.id)).forEach(take); } catch { }
+    }
+    return [...reqs.values()].map(r => ({ ...r, name: r.host.split('@')[0] }));
+  }
+  // Partner: check the code. Tries are limited on this device.
+  async function acceptPairing(req, code) {
+    code = String(code || '').replace(/\D/g, '');
+    if (code.length !== 6) throw new Error('Type all 6 digits.');
+    const lockKey = 'duocal.pairtries.' + S.me, tries = JSON.parse(localStorage.getItem(lockKey) || '[]').filter(t => Date.now() - t < 5 * 60e3);
+    if (tries.length >= 6) throw new Error('Too many wrong codes. Wait 5 minutes, then ask for a new code.');
+    // always check against the newest request (the code changes every 30 s)
+    const fresh = (await findPairingRequests()).find(r => r.data === req.data) || req;
+    let match = (await fingerprint(code, fresh.salt)) === fresh.h;   // the code on screen now
+    if (!match && fresh.h0) match = await prevMatches(code, fresh);
+    if (!match) { tries.push(Date.now()); localStorage.setItem(lockKey, JSON.stringify(tries)); throw new Error('That code is not right. Check the code on your partner\'s screen (it changes every 30 seconds).'); }
+    localStorage.removeItem(lockKey);
+    try {
+      await gapi('POST', '/users/me/calendarList', { id: fresh.us, selected: true }).catch(e => { if (e.status !== 409) throw e; });
+      await gapi('POST', '/users/me/calendarList', { id: fresh.data, selected: false, hidden: true }).catch(e => { if (e.status !== 409) throw e; });
+    } catch { throw new Error('Your partner has not shared DuoCal with this Gmail address. Check that they typed it correctly.'); }
+    localStorage.setItem(PIN(), JSON.stringify({ usId: fresh.us, dataId: fresh.data }));
+    clearAllCaches(); S.list = null;
+    const r = await init(S.me, null);
+    if (!r.ok) throw new Error('Could not open the shared calendars.');
+    await trustPartner(fresh.host, true).catch(() => { }); // pairing = permission to set each other's alarms
+    return r;
+  }
+  // the previous code (shown up to 30 s ago) is still accepted; its salt rides along in h0 as "salt:hash"
+  async function prevMatches(code, r) { const [salt, h] = String(r.h0).split(':'); return !!(salt && h && (await fingerprint(code, salt)) === h); }
+
+  // ===================== FRESH START =====================
+  // Old DuoCal calendars (from before pairing) that this account owns or has in its list.
+  async function oldCalendars() {
+    const list = (await listAll('/users/me/calendarList', { minAccessRole: 'reader', showHidden: 'true', maxResults: '250' })).items;
+    return list.filter(c => OLD_MARK.test(c.description || '') || (c.description || '').includes(MARK.data) || (c.description || '').includes(MARK.us) || (c.description || '').includes('[duocal2:alarms:'))
+      .map(c => ({ id: c.id, name: String(c.summaryOverride || c.summary || c.id).slice(0, 80), owner: c.accessRole === 'owner', old: OLD_MARK.test(c.description || '') }));
+  }
+  // Delete the calendars I own; drop the ones others shared with me from my list. Then forget this device.
+  async function wipeEverything() {
+    for (const c of await oldCalendars()) {
+      if (c.owner) await gapi('DELETE', cal(c.id)).catch(() => { });
+      else await gapi('DELETE', '/users/me/calendarList/' + encodeURIComponent(c.id)).catch(() => { });
+    }
+    for (const k of Object.keys(localStorage)) if (k.startsWith('duocal.') && k !== 'duocal.theme') localStorage.removeItem(k);
+    S = blank();
+  }
+
   // after each sync: my partner may have joined (share my alarms with them), alarms/reminders may have changed
   async function maintain() { if (!S.usId) return; await ensureMe(); await reconcile(); saveCache(); }
 
-  root.GStore = { households, deleteHousehold, confirmJoin, forgetHousehold, pendingTrust, trustPartner, maintain, init, createHousehold, sharePartner, sync, reconcile, handle, inviteLink, signOutEverything, me: () => S.me, state: () => S, _test: { toGoogle, fromGoogle, alarmEventBody, withKey } };
+  root.GStore = { pairingCode, cancelPairing, pairingDone, findPairingRequests, acceptPairing, oldCalendars, wipeEverything, households, deleteHousehold, confirmJoin, forgetHousehold, pendingTrust, trustPartner, maintain, init, createHousehold, sharePartner, sync, reconcile, handle, inviteLink, signOutEverything, me: () => S.me, state: () => S, _test: { toGoogle, fromGoogle, alarmEventBody, withKey } };
 })(window);
