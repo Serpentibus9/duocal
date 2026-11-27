@@ -430,7 +430,7 @@
     const recs = dataRecords();
     return {
       me: { id: me.id, name: me.name, email: me.email, settings: me.settings },
-      members: ms.map(m => ({ id: m.id, name: m.name, email: m.email, settings: m.settings })),
+      members: ms.map(m => ({ id: m.id, name: m.name, email: m.email, settings: m.settings, trust: m.trust })),
       household: { id: S.usId, name: S.usName, invite: inviteLink(), full: ms.length >= 2 },
       events: [...usEvents(), ...extraEvents()], alarms: recs.alarms, counters: recs.counters, sleepLogs: recs.sleepLogs,
       subscriptions: [], extraCalendars: S.extraMeta,

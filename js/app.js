@@ -898,7 +898,10 @@ function renderSettings() {
       </div>
       <div class="card">
         <h2 style="margin-top:0">💑 Your partner</h2>
-        ${p ? `<p>Shared with <b>${esc(p.name)}</b> (${esc(p.email)}). You both see and edit everything, and can set events and alarms for each other.</p>`
+        ${p ? `<p>Shared with <b>${esc(p.name)}</b> (${esc(p.email)}). You both see and edit everything.</p>
+           <p class="small">${(me().trust || []).includes(p.id) ? `✓ ${esc(p.name)} can set alarms that alert you.` : `${esc(p.name)} can't set alarms for you yet.`}
+           ${(p.trust || []).includes(me().id) ? `<br>✓ You can set alarms that alert ${esc(p.name)}.` : `<br>You can't set alarms for ${esc(p.name)} yet: they need to tap "Allow" in their DuoCal (Settings → Your partner).`}</p>
+           ${(me().trust || []).includes(p.id) ? '' : `<button class="btn primary sm" id="p-trust">Let ${esc(p.name)} set my alarms</button>`}`
         : `<p class="small"><b>1.</b> Share with your partner's Gmail (Google emails them):</p>
            <div class="row"><input type="email" id="p-email" placeholder="partner@gmail.com" style="flex:1"><button class="btn primary" id="p-share">Share</button></div>
            <p class="small" style="margin-top:12px"><b>2.</b> Send them this link (WhatsApp, email…). They open it on their phone and sign in with that Gmail:</p>
@@ -924,6 +927,7 @@ function bindSettings() {
     const c = await choose('Sign out?', 'This device forgets your calendars. Nothing is deleted. You can also cancel DuoCal\'s access at Google (you then allow it again at the next sign-in).', [['revoke', 'Sign out + cancel access'], ['yes', 'Sign out']]);
     if (c) signOut(c === 'revoke');
   };
+  $('#p-trust') && ($('#p-trust').onclick = async () => { try { localStorage.removeItem('duocal.notnow.' + me().id + '.' + partner().id); await GStore.trustPartner(partner().id, true); await reload(); render(); toast('Done'); } catch (e) { toast(e.message); } });
   $('#p-share') && ($('#p-share').onclick = async () => { try { await api('/api/household', { method: 'PUT', body: { partner: $('#p-email').value } }); toast('Shared. Now send them the link below.'); } catch (e) { toast(e.message); } });
   $('#invite') && ($('#invite').onclick = () => { navigator.clipboard?.writeText($('#invite').textContent); toast('Link copied'); });
 }
