@@ -149,9 +149,18 @@
 
   // First person: create the calendars and share them with the partner.
   async function createHousehold(partnerEmail) {
+    if (!S.me) throw new Error('Please sign in again.');
     const tz = deviceTz();
-    const us = await gapi('POST', '/calendars', { summary: 'Us · DuoCal', description: MARK.us + ' Shared calendar kept by DuoCal.', timeZone: tz });
-    const data = await gapi('POST', '/calendars', { summary: 'DuoCal · data', description: MARK.data + ' DuoCal app data (alarms, sleep, counters). You can hide this calendar.', timeZone: tz });
+    // Reuse an empty pair I made earlier (e.g. a setup that stopped half-way) instead of piling up calendars.
+    const list = (await listAll('/users/me/calendarList', { minAccessRole: 'owner', showHidden: 'true', maxResults: '250' })).items.filter(c => c.accessRole === 'owner');
+    let us = list.find(c => (c.description || '').includes(MARK.us)), data = null;
+    for (const c of list.filter(c => (c.description || '').includes(MARK.data))) {
+      const people = await trustedMembersOf(c.id).catch(() => null);
+      if (people && !people.some(m => m.email !== S.me)) { data = c; break; }
+    }
+    if (!us || !data) { us = null; data = null; }
+    if (!us) us = await gapi('POST', '/calendars', { summary: 'Us · DuoCal', description: MARK.us + ' Shared calendar kept by DuoCal.', timeZone: tz });
+    if (!data) data = await gapi('POST', '/calendars', { summary: 'DuoCal · data', description: MARK.data + ' DuoCal app data (alarms, sleep, counters). You can hide this calendar.', timeZone: tz });
     await gapi('PATCH', '/users/me/calendarList/' + encodeURIComponent(data.id), { hidden: true, selected: false }).catch(() => { });
     if (partnerEmail) await sharePartner(partnerEmail, [us.id, data.id]);
     localStorage.setItem(PIN(), JSON.stringify({ usId: us.id, dataId: data.id }));
@@ -717,7 +726,7 @@
       else await gapi('DELETE', '/users/me/calendarList/' + encodeURIComponent(c.id)).catch(() => { });
     }
     for (const k of Object.keys(localStorage)) if (k.startsWith('duocal.') && k !== 'duocal.theme') localStorage.removeItem(k);
-    S = blank();
+    const me = S.me; S = blank(); S.me = me; // still signed in as the same person
   }
 
   // after each sync: my partner may have joined (share my alarms with them), alarms/reminders may have changed
