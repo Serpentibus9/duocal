@@ -37,9 +37,15 @@ html[data-theme="light"] {
               radial-gradient(1px 1px at 51% 91%, #8a806a24, transparent), radial-gradient(900px 600px at 100% 0%, rgba(124, 199, 255, .16), transparent 60%),
               radial-gradient(900px 600px at 0% 100%, rgba(247, 215, 116, .22), transparent 60%), #f4f1ea;
 }
-:root { --safe-top: env(safe-area-inset-top); }
-/* Home Screen app on iPhone: a little extra room under the notch / Dynamic Island (about 2 mm) */
-@media (display-mode: standalone) { :root { --safe-top: calc(env(safe-area-inset-top) + 12px); } }
+:root {
+  /* Room for the notch / Dynamic Island, plus about 2 mm, wherever the phone reports one
+     (Home Screen app or Safari). min() adds the 12px only when there is a notch to clear. */
+  --safe-top: calc(env(safe-area-inset-top, 0px) + min(env(safe-area-inset-top, 0px), 12px));
+}
+/* Home Screen app held upright: never closer than a Dynamic Island's height, even if the phone reports 0 */
+@media (display-mode: standalone) and (orientation: portrait) {
+  :root { --safe-top: max(calc(env(safe-area-inset-top, 0px) + min(env(safe-area-inset-top, 0px), 12px)), 64px); }
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--backdrop); background-attachment: fixed; color: var(--text); }
 body { overflow: hidden; -webkit-font-smoothing: antialiased; }
