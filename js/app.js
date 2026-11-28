@@ -673,6 +673,8 @@ function renderAlarms() {
   return `<div class="page">
     <div class="row"><h1>Alarms</h1><div class="spacer"></div><button class="btn primary" id="add-alarm">+ New alarm</button></div>
     <div class="card" style="text-align:center"><div class="clock" data-clock="hms"></div><div class="muted" data-clock="date"></div></div>
+    ${isIOS() ? `<div class="card to-clock"><button class="btn primary wide" id="to-clock">${ICON.alarm} Send my alarms to iPhone Clock</button>
+      <p class="muted small" style="margin:8px 0 0">Real alarms that ring even on silent. Uses your <b>DuoCal Alarms</b> shortcut (set it up once: see the guide). Sends the next 24 hours.</p></div>` : ''}
     ${s.wakeAlarm ? `<h2>From your sleep schedule</h2><div class="card alarm-card"><div style="flex:1"><div class="time">${fmtTime(parseLocal('2000-01-01', s.waketime))}</div><b>Wake up</b> <span class="muted small">· every day · change it on the Sleep page</span></div></div>` : ''}
     <h2>Yours</h2>
     <div class="grid">${mine.filter(a => a.forUser === me().id).map(card).join('') || '<p class="muted">No alarms yet.</p>'}</div>
@@ -682,11 +684,35 @@ function renderAlarms() {
 }
 function bindAlarms() {
   $('#add-alarm').onclick = () => openAlarmEditor(null);
+  $('#to-clock') && ($('#to-clock').onclick = () => { location.href = clockShortcutUrl(); });
   $$('[data-edit-alarm]').forEach(el => el.onclick = () => openAlarmEditor(S.data.alarms.find(a => a.id === el.dataset.editAlarm)));
   $$('[data-toggle-alarm]').forEach(el => el.onclick = async () => {
     const a = S.data.alarms.find(x => x.id === el.dataset.toggleAlarm);
     await api('/api/alarms/' + a.id, { method: 'PUT', body: { enabled: !a.enabled } }); await reload(); render();
   });
+}
+// ---- iPhone Clock: hand my next-24-hour alarms to the "DuoCal Alarms" shortcut ----
+const isIOS = () => !GAuth.isDesktop && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+function myNextAlarms(now = new Date()) {
+  const tz = myTz(), out = [];
+  const list = S.data.alarms.filter(a => a.enabled && a.forUser === me().id).map(a => ({ label: a.label || 'Alarm', a }));
+  const s = me().settings;
+  if (s.wakeAlarm) list.push({ label: 'Wake up', a: { time: s.waketime, days: [0, 1, 2, 3, 4, 5, 6] } });
+  for (let k = 0; k < 2; k++) {
+    const day = clockIn(tz, new Date(now.getTime() + k * DAY));
+    for (const { label, a } of list) {
+      if (!alarmOnDay(a, day.date, day.dow)) continue;
+      const [y, m, d] = day.date.split('-').map(Number), [hh, mm] = a.time.split(':').map(Number);
+      const at = Recur.wallCal(tz).fromWall(new Date(Date.UTC(y, m - 1, d, hh, mm)));
+      if (at > now && at - now <= DAY) out.push({ label: String(label).replace(/\s+/g, ' ').slice(0, 40), at });
+    }
+  }
+  return out.sort((x, y) => x.at - y.at).slice(0, 20);
+}
+// One line per alarm, e.g. "Pills — November 28, 2026 at 7:30 AM" (the shortcut finds the date in each line)
+function clockShortcutUrl(now = new Date()) {
+  const lines = myNextAlarms(now).map(x => x.label + ' — ' + x.at.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }));
+  return 'shortcuts://run-shortcut?name=' + encodeURIComponent('DuoCal Alarms') + '&input=text&text=' + encodeURIComponent(lines.join(String.fromCharCode(10)) || 'none');
 }
 const EVERY_LABEL = { '': 'Once', '1d': 'Every day', '2d': 'Every 2 days', '3d': 'Every 3 days', '1w': 'Every week', '1m': 'Every month', '1y': 'Every year' };
 // A wheel you can scroll (like the iPhone clock) plus a box you can type in. Both stay in sync.
