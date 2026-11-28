@@ -244,7 +244,13 @@ code.copy { background: var(--panel2); padding: 6px 10px; border-radius: 8px; di
   .nav .ico svg { width: 24px; height: 24px; }
   .nav.active { box-shadow: none; }
   .page { padding: 14px; }
-  .toolbar { padding: 10px; padding-top: calc(10px + env(safe-area-inset-top)); }
+  .toolbar { padding: 10px; padding-top: calc(10px + env(safe-area-inset-top)); padding-left: calc(10px + env(safe-area-inset-left)); padding-right: calc(10px + env(safe-area-inset-right)); }
+  /* iPhone notch / Dynamic Island: every screen starts below it (0 in Safari, real space in the Home Screen app) */
+  .page { padding-top: calc(14px + env(safe-area-inset-top)); padding-left: calc(14px + env(safe-area-inset-left)); padding-right: calc(14px + env(safe-area-inset-right)); }
+  .phone-bar { padding-left: calc(10px + env(safe-area-inset-left)); padding-right: calc(10px + env(safe-area-inset-right)); }
+  .ringing { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  /* messages appear above the bottom tabs, not behind them */
+  #toast { bottom: calc(80px + env(safe-area-inset-bottom)); width: calc(100vw - 32px); }
   .toolbar .title { min-width: 0; font-size: 17px; }
   .month { grid-auto-rows: minmax(70px, 1fr); }
   .month .pill { font-size: 10px; padding: 1px 3px; }
