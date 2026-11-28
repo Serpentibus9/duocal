@@ -118,6 +118,9 @@ html[data-theme="dark"] input, html[data-theme="dark"] select { color-scheme: da
 .shell:has(+ .clock-bar .clock-btns > :nth-child(2)) .fab { bottom: calc(196px + env(safe-area-inset-bottom)); }
 .shell:has(+ .clock-bar) .page { padding-bottom: 160px; }
 @media (min-width: 760px) { .clock-bar { left: auto; right: 20px; bottom: 20px; max-width: 420px; } }
+.clock-setup { margin-top: 12px; }
+.setup-steps { padding-left: 20px; margin: 8px 0; display: grid; gap: 10px; line-height: 1.45; }
+.setup-steps .btn.wide { margin: 6px 0 4px; }
 .btn.wide { width: 100%; justify-content: center; margin-top: 4px; }
 label.f { min-width: 0; }
 label.f { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); margin-bottom: 12px; }

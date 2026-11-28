@@ -681,7 +681,8 @@ function renderAlarms() {
     <div class="card" style="text-align:center"><div class="clock" data-clock="hms"></div><div class="muted" data-clock="date"></div></div>
     ${isIOS() ? `<div class="card to-clock"><button class="btn primary wide" id="to-clock">${ICON.alarm} Send my alarms to iPhone Clock</button>
       ${partner() ? `<button class="btn wide" id="to-clock-p" style="margin-top:8px">${ICON.alarm} Send to ${esc(partner().name)}'s iPhone Clock</button>` : ''}
-      <p class="muted small" style="margin:8px 0 0">Real alarms that ring even on silent, for the next 24 hours, using the <b>DuoCal Alarms</b> shortcut. For ${partner() ? esc(partner().name) : 'your partner'}, Messages opens with a text to send; their iPhone then puts the alarms on their Clock by itself.</p></div>` : ''}
+      <p class="muted small" style="margin:8px 0 0">Real alarms that ring even on silent, for the next 24 hours, using the <b>DuoCal Alarms</b> shortcut. For ${partner() ? esc(partner().name) : 'your partner'}, Messages opens with a text to send; their iPhone then puts the alarms on their Clock by itself.</p>
+      ${clockSetupHTML()}</div>` : ''}
     ${s.wakeAlarm ? `<h2>From your sleep schedule</h2><div class="card alarm-card"><div style="flex:1"><div class="time">${fmtTime(parseLocal('2000-01-01', s.waketime))}</div><b>Wake up</b> <span class="muted small">· every day · change it on the Sleep page</span></div></div>` : ''}
     <h2>Yours</h2>
     <div class="grid">${mine.filter(a => a.forUser === me().id).map(card).join('') || '<p class="muted">No alarms yet.</p>'}</div>
@@ -693,6 +694,13 @@ function bindAlarms() {
   $('#add-alarm').onclick = () => openAlarmEditor(null);
   $('#to-clock') && ($('#to-clock').onclick = sendToClock);
   $('#to-clock-p') && ($('#to-clock-p').onclick = sendToPartnerClock);
+  $('#sc-save') && ($('#sc-save').onclick = async () => {
+    const v = $('#sc-link').value.trim();
+    if (v && !/^https:\/\/(www\.)?icloud\.com\/shortcuts\/[0-9a-f]{32}$/i.test(v)) return toast('Paste the iCloud link (it starts with https://www.icloud.com/shortcuts/)');
+    try { await api('/api/me', { method: 'PUT', body: { settings: { shortcutLink: v } } }); await reload(); render(); toast(v ? 'Shared with ' + (partner() ? partner().name : 'your partner') : 'Removed'); } catch (e) { toast(e.message); }
+  });
+  $('#sc-done') && ($('#sc-done').onclick = () => { localStorage.setItem('duocal.clockSetupDone.' + me().id, '1'); render(); });
+  $('#sc-get') && ($('#sc-get').onclick = () => { location.href = partner().settings.shortcutLink; });
   $$('[data-edit-alarm]').forEach(el => el.onclick = () => openAlarmEditor(S.data.alarms.find(a => a.id === el.dataset.editAlarm)));
   $$('[data-toggle-alarm]').forEach(el => el.onclick = async () => {
     const a = S.data.alarms.find(x => x.id === el.dataset.toggleAlarm);
@@ -756,6 +764,25 @@ function sendToPartnerClock() {
   localStorage.setItem(CLOCK_KEY(p.id), JSON.stringify(clockSig(p.id)));
   location.href = partnerClockUrl();
   setTimeout(render, 500);
+}
+// One-time iPhone Clock setup, shown on the Alarms page: get the shortcut (from my partner's link),
+// let my partner reach my Clock (an automation only I can make), and share my own shortcut link.
+function clockSetupHTML() {
+  const p = partner(), pn = p ? esc(p.name) : 'your partner';
+  const link = p && p.settings.shortcutLink, mine = me().settings.shortcutLink || '';
+  const done = localStorage.getItem('duocal.clockSetupDone.' + me().id);
+  return `<details class="how clock-setup" ${done ? '' : 'open'}><summary>Set up iPhone Clock (once)</summary>
+    <ol class="small setup-steps">
+      <li><b>Get the shortcut.</b> ${link ? `<button class="btn wide" id="sc-get">${ICON.alarm} Get "DuoCal Alarms" from ${pn}</button><span class="muted">Then tap <b>Add Shortcut</b>.</span>`
+        : `<span class="muted">${p ? pn + " hasn't shared theirs yet. Ask them to, or build it (see the guide)." : 'Build it once (see the guide).'}</span>`}</li>
+      ${p ? `<li><b>Let ${pn} set alarms on your Clock.</b> In <b>Shortcuts</b>: <b>Automation</b> → <b>+</b> → <b>Message</b> → Sender: <b>${pn}</b> → Message Contains: <b>DuoCal alarms</b> → <b>Run Immediately</b> → <b>Next</b> → choose <b>DuoCal Alarms</b> → <b>Done</b>. <span class="muted">Apple doesn't let apps share automations, so this one step is yours.</span></li>` : ''}
+      <li><b>Try it:</b> tap <b>Send my alarms to iPhone Clock</b> above and tap <b>Allow</b>.</li>
+    </ol>
+    ${p ? `<label class="f" style="margin-top:6px">Share my shortcut with ${pn} <span class="muted">(Shortcuts → hold DuoCal Alarms → Share → Copy iCloud Link, paste here)</span>
+      <input type="url" id="sc-link" placeholder="https://www.icloud.com/shortcuts/…" value="${esc(mine)}" autocapitalize="off" autocomplete="off"></label>
+      <button class="btn" id="sc-save">${mine ? 'Update link' : 'Share with ' + pn}</button>` : ''}
+    ${done ? '' : `<button class="btn wide" id="sc-done" style="margin-top:8px">All done, fold this away</button>`}
+  </details>`;
 }
 const EVERY_LABEL = { '': 'Once', '1d': 'Every day', '2d': 'Every 2 days', '3d': 'Every 3 days', '1w': 'Every week', '1m': 'Every month', '1y': 'Every year' };
 // A wheel you can scroll (like the iPhone clock) plus a box you can type in. Both stay in sync.

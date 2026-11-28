@@ -47,6 +47,7 @@ const SCHEMAS = {
   settings: {
     theme: v => ['light', 'dark', 'system'].includes(v) ? v : undefined, bedtime: V.hm(), waketime: V.hm(), wakeAlarm: V.bool(),
     bedtimeReminder: V.int(0, 180), weekStart: V.int(0, 6), clock24: V.bool(), alarmsToGoogle: V.bool(), tz: V.tz(), tzAuto: V.bool(),
+    shortcutLink: v => v === '' || (typeof v === 'string' && /^https:\/\/(www\.)?icloud\.com\/shortcuts\/[0-9a-f]{32}$/i.test(v)) ? v : undefined,
   },
 };
 const REQUIRED = { events: ['start', 'end'], alarms: ['time'], counters: ['date'], subscriptions: ['url'], sleepLogs: ['start'] };
