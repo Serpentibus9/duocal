@@ -34,7 +34,7 @@ const ICON = {
 };
 // Phone layout (narrow screens): compact toolbar, "3 days" instead of a week, dots in month view.
 const phone = () => innerWidth < 760;
-const weekDays = () => phone() ? 3 : 7; // px per hour in week/day view (matches --hour in CSS)
+const weekDays = () => S.calView === 'days3' ? 3 : 7; // px per hour in week/day view (matches --hour in CSS)
 
 const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, d.getHours(), d.getMinutes());
@@ -158,7 +158,8 @@ function renderPage() {
 function visibleRange() {
   const c = S.cursor;
   if (S.calView === 'day') return [startOfDay(c), addDays(startOfDay(c), 1)];
-  if (S.calView === 'week') { const s = phone() ? startOfDay(c) : weekStart(c); return [s, addDays(s, weekDays())]; }
+  if (S.calView === 'week') { const s = weekStart(c); return [s, addDays(s, 7)]; }
+  if (S.calView === 'days3') { const s = startOfDay(c); return [s, addDays(s, 3)]; }
   if (S.calView === 'month') { const first = new Date(c.getFullYear(), c.getMonth(), 1); const s = weekStart(first); return [s, addDays(s, 42)]; }
   return [startOfDay(c), addDays(startOfDay(c), 60)]; // agenda: next 60 days
 }
@@ -187,7 +188,7 @@ function calTitle() {
   const c = S.cursor;
   if (S.calView === 'month') return `${MONTHS[c.getMonth()]} ${c.getFullYear()}`;
   if (S.calView === 'day') return c.toLocaleDateString([], phone() ? { weekday: 'short', month: 'short', day: 'numeric' } : { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  if (S.calView === 'week') {
+  if (S.calView === 'week' || S.calView === 'days3') {
     const [s] = visibleRange(), e = addDays(s, weekDays() - 1);
     if (phone()) return `${s.getDate()} – ${e.getDate()} ${MONTHS[e.getMonth()].slice(0, 3)}`;
     return s.getMonth() === e.getMonth() ? `${MONTHS[s.getMonth()]} ${s.getFullYear()}` : `${MONTHS[s.getMonth()].slice(0, 3)} – ${MONTHS[e.getMonth()].slice(0, 3)} ${e.getFullYear()}`;
@@ -196,7 +197,8 @@ function calTitle() {
 }
 
 function renderCalendar() {
-  const views = [['day', 'Day'], ['week', phone() ? '3 Days' : 'Week'], ['month', 'Month'], ['agenda', 'List']];
+  const views = phone() ? [['day', 'Day'], ['days3', '3 Days'], ['week', 'Week'], ['month', 'Month'], ['agenda', 'List']]
+    : [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['agenda', 'List']];
   if (phone()) {
     const bar = `
   <div class="toolbar phone-bar">
@@ -222,7 +224,7 @@ function renderCalendar() {
     <div class="chips">${S.data.members.map(m => `<button class="chip ${S.filter[m.id] !== false ? 'on' : ''}" data-filter="${esc(m.id)}" style="${S.filter[m.id] !== false ? `background:${personColor(m.id)};border-color:transparent;color:${personInk(m.id)}` : ''}">${esc(m.name)}</button>`).join('')}</div>
     <div class="seg">${views.map(([v, l]) => `<button class="${S.calView === v ? 'on' : ''}" data-view="${v}">${l}</button>`).join('')}</div>
   </div>`;
-  const body = S.calView === 'month' ? renderMonth() : S.calView === 'agenda' ? renderAgenda() : renderTimeGrid(S.calView === 'day' ? 1 : 7);
+  const body = S.calView === 'month' ? renderMonth() : S.calView === 'agenda' ? renderAgenda() : renderTimeGrid(S.calView === 'day' ? 1 : weekDays());
   return toolbar + `<div class="calscroll">${body}</div>`;
 }
 
@@ -336,7 +338,7 @@ function bindCalendar() {
   $('#recent') && ($('#recent').onclick = openRecent);
   const step = dir => {
     const c = S.cursor;
-    S.cursor = S.calView === 'month' ? new Date(c.getFullYear(), c.getMonth() + dir, 1) : addDays(c, dir * (S.calView === 'day' ? 1 : S.calView === 'week' ? weekDays() : 30));
+    S.cursor = S.calView === 'month' ? new Date(c.getFullYear(), c.getMonth() + dir, 1) : addDays(c, dir * (S.calView === 'day' ? 1 : S.calView === 'week' || S.calView === 'days3' ? weekDays() : 30));
     render();
   };
   $('#prev').onclick = () => step(-1); $('#next').onclick = () => step(1);
