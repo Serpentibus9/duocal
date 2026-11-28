@@ -699,6 +699,10 @@ function bindAlarms() {
     if (v && !/^https:\/\/(www\.)?icloud\.com\/shortcuts\/[0-9a-f]{32}$/i.test(v)) return toast('Paste the iCloud link (it starts with https://www.icloud.com/shortcuts/)');
     try { await api('/api/me', { method: 'PUT', body: { settings: { shortcutLink: v } } }); await reload(); render(); toast(v ? 'Shared with ' + (partner() ? partner().name : 'your partner') : 'Removed'); } catch (e) { toast(e.message); }
   });
+  $('#sc-copy') && ($('#sc-copy').onclick = async () => {
+    try { await navigator.clipboard.writeText(automationPrompt()); toast('Copied. Now open Shortcuts → Automation → +'); }
+    catch { toast('Press and hold the text above to copy it'); }
+  });
   $('#sc-done') && ($('#sc-done').onclick = () => { localStorage.setItem('duocal.clockSetupDone.' + me().id, '1'); render(); });
   $('#sc-get') && ($('#sc-get').onclick = () => { location.href = partner().settings.shortcutLink; });
   $$('[data-edit-alarm]').forEach(el => el.onclick = () => openAlarmEditor(S.data.alarms.find(a => a.id === el.dataset.editAlarm)));
@@ -767,6 +771,8 @@ function sendToPartnerClock() {
 }
 // One-time iPhone Clock setup, shown on the Alarms page: get the shortcut (from my partner's link),
 // let my partner reach my Clock (an automation only I can make), and share my own shortcut link.
+// What to paste into the Shortcuts AI to make the "alarms from my partner" automation
+const automationPrompt = () => `Create a personal automation: When I receive a message from ${partner().name} that contains the text "DuoCal alarms", run it immediately without asking me. The automation should run my existing shortcut called "DuoCal Alarms" and pass it the text of that message as its input.`;
 function clockSetupHTML() {
   const p = partner(), pn = p ? esc(p.name) : 'your partner';
   const link = p && p.settings.shortcutLink, mine = me().settings.shortcutLink || '';
@@ -775,7 +781,10 @@ function clockSetupHTML() {
     <ol class="small setup-steps">
       <li><b>Get the shortcut.</b> ${link ? `<button class="btn wide" id="sc-get">${ICON.alarm} Get "DuoCal Alarms" from ${pn}</button><span class="muted">Then tap <b>Add Shortcut</b>.</span>`
         : `<span class="muted">${p ? pn + " hasn't shared theirs yet. Ask them to, or build it (see the guide)." : 'Build it once (see the guide).'}</span>`}</li>
-      ${p ? `<li><b>Let ${pn} set alarms on your Clock.</b> In <b>Shortcuts</b>: <b>Automation</b> → <b>+</b> → <b>Message</b> → Sender: <b>${pn}</b> → Message Contains: <b>DuoCal alarms</b> → <b>Run Immediately</b> → <b>Next</b> → choose <b>DuoCal Alarms</b> → <b>Done</b>. <span class="muted">Apple doesn't let apps share automations, so this one step is yours.</span></li>` : ''}
+      ${p ? `<li><b>Let ${pn} set alarms on your Clock.</b> Tap <b>Copy</b>, open <b>Shortcuts</b> → <b>Automation</b> → <b>+</b>, tap the <b>AI</b> button and paste. If ${pn} is saved under another name in your Contacts, change the name in it.
+        <div class="ai-prompt small">${esc(automationPrompt())}</div>
+        <button class="btn wide" id="sc-copy">Copy</button>
+        <span class="muted">When it's made, check: <b>Automation</b> on, <b>Confirm Before Run</b> off, and <b>Run DuoCal Alarms</b> with Input <b>Shortcut Input</b>.</span></li>` : ''}
       <li><b>Try it:</b> tap <b>Send my alarms to iPhone Clock</b> above and tap <b>Allow</b>.</li>
     </ol>
     ${p ? `<label class="f" style="margin-top:6px">Share my shortcut with ${pn} <span class="muted">(Shortcuts → hold DuoCal Alarms → Share → Copy iCloud Link, paste here)</span>
