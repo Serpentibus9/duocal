@@ -100,6 +100,13 @@ input[type=text], input[type=email], input[type=password], input[type=date], inp
 }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 html[data-theme="dark"] input, html[data-theme="dark"] select { color-scheme: dark; }
+/* iPhone Safari draws date/time boxes at its own width: make them fit like every other box */
+@supports (-webkit-touch-callout: none) {
+  input[type=date], input[type=time], input[type=datetime-local] { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; display: block; min-height: 44px; }
+  input::-webkit-date-and-time-value { text-align: left; }
+}
+.btn.wide { width: 100%; justify-content: center; margin-top: 4px; }
+label.f { min-width: 0; }
 label.f { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .card { background: var(--panel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
 .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
@@ -225,6 +232,7 @@ code.copy { background: var(--panel2); padding: 6px 10px; border-radius: 8px; di
 .dots i { width: 7px; height: 7px; border-radius: 50%; display: block; }
 .dots b { font-size: 10px; color: var(--muted); line-height: 1; }
 @media (max-width: 760px) {
+  .add-night .two { grid-template-columns: minmax(0, 1fr); gap: 0; }
   /* iPhone zooms into fields with text under 16px: keep them at 16px */
   input, select, textarea, button { font-size: 16px; }
   .lbl { display: none; } .lbl-s { display: inline; }

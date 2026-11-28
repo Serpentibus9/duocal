@@ -894,12 +894,15 @@ function renderSleep() {
         <label class="f">Wake-up time<input type="time" id="s-wake" value="${s.waketime}"></label>
       </div>
       <div class="row"><button class="switch ${s.wakeAlarm ? 'on' : ''}" id="s-alarm"></button> Ring a wake-up alarm at wake-up time</div>
-      <div class="row" style="margin-top:10px">Remind me <input type="number" id="s-rem" min="0" max="180" value="${s.bedtimeReminder}" style="width:80px"> minutes before bedtime (0 = off)</div>
-      <div class="actions"><div class="spacer"></div><button class="btn primary" id="s-save">Save schedule</button></div>
+      <label class="f" style="margin-top:12px">Bedtime reminder<select id="s-rem">${[...new Set([0, 15, 30, 45, 60, 90, 120, +s.bedtimeReminder || 0])].sort((a, b) => a - b)
+        .map(m => `<option value="${m}" ${m === (+s.bedtimeReminder || 0) ? 'selected' : ''}>${m ? (m < 60 ? m + ' minutes before' : m / 60 + (m === 60 ? ' hour' : ' hours') + ' before') : 'Off'}</option>`).join('')}</select></label>
+      <button class="btn primary wide" id="s-save">Save schedule</button>
     </div>
     <h2>History</h2>
     <div class="card">${logs.slice(0, 20).map(l => `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line2)"><div style="flex:1">${new Date(l.start).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${fmtTime(new Date(l.start))} → ${fmtTime(new Date(l.end))}</div><b>${durText(hours(l) * 36e5)}</b><button class="btn sm" data-del-sleep="${esc(l.id)}">✕</button></div>`).join('') || '<span class="muted">Press "Going to sleep" tonight and "I\'m awake" in the morning — or add a past night:</span>'}
-      <div class="row" style="margin-top:12px"><span class="muted small">Add a night:</span><input type="datetime-local" id="h-from" style="width:auto"><span>→</span><input type="datetime-local" id="h-to" style="width:auto"><button class="btn sm" id="h-add">Add</button></div>
+      <div class="add-night"><div class="muted small" style="margin:14px 0 8px">Add a past night</div>
+        <div class="two"><label class="f">Went to sleep<input type="datetime-local" id="h-from"></label><label class="f">Woke up<input type="datetime-local" id="h-to"></label></div>
+        <button class="btn wide" id="h-add">Add night</button></div>
     </div>
   </div>`;
 }
