@@ -331,13 +331,13 @@
       colorId: TO_GCOLOR[e.color ?? 1] || '9',
       recurrence: e.rrule ? ['RRULE:' + e.rrule, ...exd.map(x => e.allDay ? `EXDATE;VALUE=DATE:${x.slice(0, 10).replace(/-/g, '')}` : `EXDATE;TZID=${z}:${wallString(new Date(x), z).replace(/[-:]/g, '')}`)] : [],
       extendedProperties: { shared: { duocalBy: S.me, duocalFor: (e.forUsers || []).join(',').slice(0, 500), duocalRem: (e.reminders || []).join(','), duocalColor: String(e.color ?? 1) } },
-      // Google keeps reminders per person: this sets *mine*. My partner's app sets theirs.
+      // Google keeps reminders per person and only that person can set them, so DuoCal doesn't use them:
+      // reminders arrive as 🔔 entries in each person's alarm calendar instead (see bellsFor).
       reminders: myReminders(e),
     };
   }
   function myReminders(e) {
-    const forMe = !(e.forUsers && e.forUsers.length) || e.forUsers.includes(S.me);
-    return { useDefault: false, overrides: forMe ? (e.reminders || []).slice(0, 5).map(m => ({ method: 'popup', minutes: Math.min(m, 40320) })) : [] };
+    return { useDefault: false, overrides: [] }; // see bellsFor: no double alerts
   }
 
   function dataRecords() {
@@ -433,8 +433,69 @@
         if (w) { await gapi('PUT', cal(S.myAlarmCal) + '/events/' + encodeURIComponent(g.id), w); want.delete(key); }
         else await gapi('DELETE', cal(S.myAlarmCal) + '/events/' + encodeURIComponent(g.id)).catch(() => { });
       }
+      for (const [k, w] of bellsFor(S.me)) want.set(k, w); // event reminders for me
       for (const w of want.values()) await gapi('POST', cal(S.myAlarmCal) + '/events', w);
+      // 3) my partner's event reminders, straight into their alarm calendar (if they allowed me),
+      //    so their phone reminds them even when their DuoCal is closed. Their app writes the same entries.
+      await partnerBells().catch(e => console.warn('partner reminders:', e.message));
     } finally { reconciling = false; }
+  }
+  // Event reminders as 🔔 entries in someone's alarm calendar: one per reminder, for the next 14 days.
+  // Whoever's app runs first writes them; both apps compute exactly the same entries (same key, same fingerprint).
+  const BELL_DAYS = 14, BELL_MAX = 80;
+  function bellsFor(person) {
+    const out = new Map();
+    const m = members().find(x => x.id === person); if (!m) return out;
+    const tz = validTz(m.settings.tz) || deviceTz();
+    const now = Date.now(), from = new Date(now - 36e5), until = now + BELL_DAYS * 864e5;
+    const budget = { left: 60000 };
+    for (const e of usEvents()) {
+      if (e.readOnly || !(e.reminders || []).length) continue;
+      if (e.forUsers && e.forUsers.length && !e.forUsers.includes(person)) continue;
+      const mins = [...new Set(e.reminders.map(Number).filter(x => x >= 0 && x <= 40320))].slice(0, 5);
+      const reach = Math.max(...mins) * 60e3;
+      for (const o of Recur.expand(e, from, new Date(until + reach + 864e5), budget)) {
+        const st = e.allDay ? Recur.wallCal(tz).fromWall(o.start) : o.start; // all-day: midnight on their clock
+        for (const mi of mins) {
+          const t = new Date(st.getTime() - mi * 60e3);
+          if (t < from || t.getTime() > until) continue;
+          const key = 'r:' + e.id + ':' + st.getTime() + ':' + mi;
+          out.set(key, bellBody(e.title, mi, t, key));
+          if (out.size >= BELL_MAX) return out;
+        }
+      }
+    }
+    return out;
+  }
+  function bellBody(title, mins, t, key) {
+    const ahead = !mins ? 'now' : mins % 1440 === 0 ? `in ${mins / 1440} day${mins === 1440 ? '' : 's'}` : mins % 60 === 0 ? `in ${mins / 60} h` : mins > 60 ? `in ${Math.floor(mins / 60)} h ${mins % 60} min` : `in ${mins} min`;
+    const summary = '🔔 ' + String(title || 'Event').slice(0, 80) + ' · ' + ahead;
+    return {
+      summary, transparency: 'transparent', visibility: 'private',
+      start: { dateTime: t.toISOString() }, end: { dateTime: new Date(t.getTime() + 5 * 60e3).toISOString() },
+      reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 0 }] },
+      extendedProperties: { private: { duocal: '1', key, h: hash(summary + '|' + t.toISOString()) } },
+    };
+  }
+  let partnerSig = '', partnerAt = 0;
+  async function partnerBells() {
+    const p = members().find(x => x.id !== S.me);
+    if (!p || !p.alarmCal || !p.trust.includes(S.me)) return; // not allowed: their own app does it
+    const want = bellsFor(p.id);
+    const sig = hash([...want.values()].map(b => b.extendedProperties.private.key + b.extendedProperties.private.h).join());
+    if (sig === partnerSig && Date.now() - partnerAt < 10 * 60e3) return; // nothing changed lately
+    const path = cal(p.alarmCal) + '/events';
+    const have = (await listAll(path, { singleEvents: 'false', maxResults: '2500', privateExtendedProperty: 'duocal=1' })).items;
+    for (const g of have) {
+      const key = ((g.extendedProperties || {}).private || {}).key || '';
+      if (!key.startsWith('r:')) continue; // only reminders: never touch their alarms
+      const w = want.get(key);
+      if (w && g.extendedProperties.private.h === w.extendedProperties.private.h) { want.delete(key); continue; }
+      if (w) { await gapi('PUT', path + '/' + encodeURIComponent(g.id), w); want.delete(key); }
+      else await gapi('DELETE', path + '/' + encodeURIComponent(g.id)).catch(() => { });
+    }
+    for (const w of want.values()) await gapi('POST', path, w);
+    partnerSig = sig; partnerAt = Date.now();
   }
   const EVERY_RULE = { '1d': 'FREQ=DAILY', '2d': 'FREQ=DAILY;INTERVAL=2', '3d': 'FREQ=DAILY;INTERVAL=3', '1w': 'FREQ=WEEKLY', '1m': 'FREQ=MONTHLY', '1y': 'FREQ=YEARLY' };
   function alarmEventBody(label, time, days, date, alertBefore, tz, every = '') {
@@ -497,7 +558,7 @@
         if (!v.forUsers || !v.forUsers.length) v.forUsers = [S.me];
         if (!v.tz && !v.allDay) v.tz = myMember() ? myMember().settings.tz || deviceTz() : deviceTz();
         const g = await gapi('POST', cal(S.usId) + '/events', toGoogle(v));
-        S.raw.us[g.id] = g; saveCache(); return { id: g.id };
+        S.raw.us[g.id] = g; saveCache(); reconcileSoon(); return { id: g.id };
       }
       const cur = usEvents().find(e => e.id === id);
       if (!cur) throw err('Not found', 404);
@@ -507,9 +568,9 @@
         const gb = toGoogle(v);
         if (S.raw.us[id] && S.raw.us[id].recurringEventId) delete gb.recurrence; // one date of a series: Google keeps the rule on the series
         const g = await gapi('PUT', evPath(id), gb);
-        S.raw.us[g.id] = g; saveCache(); return { id: g.id };
+        S.raw.us[g.id] = g; saveCache(); reconcileSoon(); return { id: g.id };
       }
-      if (method === 'DELETE') { await gapi('DELETE', evPath(id)).catch(e => { if (e.status !== 410 && e.status !== 404) throw e; }); delete S.raw.us[id]; saveCache(); return {}; }
+      if (method === 'DELETE') { await gapi('DELETE', evPath(id)).catch(e => { if (e.status !== 410 && e.status !== 404) throw e; }); delete S.raw.us[id]; saveCache(); reconcileSoon(); return {}; }
     }
 
     if (kind === 'counters') {
