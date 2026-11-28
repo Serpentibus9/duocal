@@ -2,7 +2,7 @@
 // Only DuoCal's own files are cached. Google traffic (your calendar data and
 // sign-in) is NEVER cached or touched here.
 // Updates: the network is tried first, so a new version shows up on the next open.
-const CACHE = 'duocal-v14';
+const CACHE = 'duocal-v15';
 const FILES = ['./', 'index.html', 'styles.css', 'icon.svg', 'icon-512.png', 'apple-touch-icon.png', 'manifest.webmanifest',
   'js/config.js', 'js/validate.js', 'js/recur.js', 'js/ics.js', 'js/export.js', 'js/importers.js', 'js/gauth.js', 'js/gstore.js', 'js/app.js', 'vendor/exceljs.min.js'];
 
@@ -15,7 +15,8 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return; // Google & everything else: straight to the network
   if (url.search || url.hash) return;
   e.respondWith(
-    fetch(e.request).then(res => {
+    // always ask GitHub whether the file changed (no stale copies from the browser's own cache)
+    fetch(e.request.url, { cache: 'no-cache', credentials: 'same-origin' }).then(res => {
       if (res.ok && res.type === 'basic') { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
       return res;
     }).catch(() => caches.match(e.request).then(r => r || caches.match('index.html')))
