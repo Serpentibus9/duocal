@@ -785,7 +785,10 @@ function clockSetupHTML() {
         <div class="ai-prompt small">${esc(automationPrompt())}</div>
         <button class="btn wide" id="sc-copy">Copy</button>
         <span class="muted">When it's made, check: <b>Automation</b> on, <b>Confirm Before Run</b> off, and <b>Run DuoCal Alarms</b> with Input <b>Shortcut Input</b>.</span></li>` : ''}
-      <li><b>Try it:</b> tap <b>Send my alarms to iPhone Clock</b> above and tap <b>Allow</b>.</li>
+      <li><b>So it works without touching the phone</b>, in the iPhone <b>Settings</b> app:
+        <br>• <b>Apps → Shortcuts → Advanced</b>: turn on <b>Allow Deleting Without Confirmation</b>. <span class="muted">(The shortcut clears the old DuoCal alarms; without this it stops to ask.)</span>
+        <br>• <b>Apps → Messages</b>: <b>iMessage</b> on. <span class="muted">(The alarms arrive as a text.)</span></li>
+      <li><b>Try it once by hand:</b> tap <b>Send my alarms to iPhone Clock</b> above. When the iPhone asks about Clock or deleting alarms, tap <b>Always Allow</b>. <span class="muted">After that it runs by itself, even with the phone locked.</span></li>
     </ol>
     ${p ? `<label class="f" style="margin-top:6px">Share my shortcut with ${pn} <span class="muted">(Shortcuts → hold DuoCal Alarms → Share → Copy iCloud Link, paste here)</span>
       <input type="url" id="sc-link" placeholder="https://www.icloud.com/shortcuts/…" value="${esc(mine)}" autocapitalize="off" autocomplete="off"></label>
