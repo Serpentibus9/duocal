@@ -143,7 +143,9 @@ function render() {
       </div>
     </aside>
     <main class="main ${S.page === 'calendar' ? 'cal' : ''}">${renderPage()}</main>
-  </div>`;
+  </div>${clockBehind() ? `<div class="clock-bar"><button class="btn primary" id="clock-send">${ICON.alarm} Put my alarms on iPhone Clock</button><button class="btn icon" id="clock-later" aria-label="Not now">✕</button></div>` : ''}`;
+  $('#clock-send') && ($('#clock-send').onclick = sendToClock);
+  $('#clock-later') && ($('#clock-later').onclick = () => { sessionStorage.setItem('duocal.clockLater', clockSig().join('|')); render(); });
   $$('[data-page]').forEach(b => b.onclick = () => { S.page = b.dataset.page; localStorage.setItem('duocal.page', S.page); render(); });
   const bind = { calendar: bindCalendar, alarms: bindAlarms, sleep: bindSleep, counters: bindCounters, transfer: bindTransfer, settings: bindSettings }[S.page];
   bind && bind();
@@ -684,7 +686,7 @@ function renderAlarms() {
 }
 function bindAlarms() {
   $('#add-alarm').onclick = () => openAlarmEditor(null);
-  $('#to-clock') && ($('#to-clock').onclick = () => { location.href = clockShortcutUrl(); });
+  $('#to-clock') && ($('#to-clock').onclick = sendToClock);
   $$('[data-edit-alarm]').forEach(el => el.onclick = () => openAlarmEditor(S.data.alarms.find(a => a.id === el.dataset.editAlarm)));
   $$('[data-toggle-alarm]').forEach(el => el.onclick = async () => {
     const a = S.data.alarms.find(x => x.id === el.dataset.toggleAlarm);
@@ -713,6 +715,22 @@ function myNextAlarms(now = new Date()) {
 function clockShortcutUrl(now = new Date()) {
   const lines = myNextAlarms(now).map(x => x.label + ' — ' + x.at.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }));
   return 'shortcuts://run-shortcut?name=' + encodeURIComponent('DuoCal Alarms') + '&input=text&text=' + encodeURIComponent(lines.join(String.fromCharCode(10)) || 'none');
+}
+// Is the iPhone Clock missing something? (a new or changed alarm, or tomorrow's repeat, or one that was removed)
+const clockSig = () => S.data ? myNextAlarms().map(x => x.label + '@' + x.at.getTime()) : [];
+const CLOCK_KEY = () => 'duocal.clockSent.' + me().id;
+function clockBehind() {
+  if (!isIOS() || !S.data) return false;
+  const now = Date.now(), cur = clockSig();
+  let sent = []; try { sent = JSON.parse(localStorage.getItem(CLOCK_KEY()) || '[]'); } catch { }
+  if (sessionStorage.getItem('duocal.clockLater') === cur.join('|')) return false; // "not now" for this exact set
+  const future = sent.filter(k => +k.split('@').pop() > now);
+  return cur.some(k => !sent.includes(k)) || future.some(k => !cur.includes(k));
+}
+function sendToClock() {
+  localStorage.setItem(CLOCK_KEY(), JSON.stringify(clockSig()));
+  location.href = clockShortcutUrl();
+  setTimeout(render, 500); // the bar goes away
 }
 const EVERY_LABEL = { '': 'Once', '1d': 'Every day', '2d': 'Every 2 days', '3d': 'Every 3 days', '1w': 'Every week', '1m': 'Every month', '1y': 'Every year' };
 // A wheel you can scroll (like the iPhone clock) plus a box you can type in. Both stay in sync.
@@ -1443,6 +1461,7 @@ function tick() {
   const minuteKey = `${fmtDateInput(now)} ${fmtTimeInput(now)}`;
   if (minuteKey === lastMinuteCheck) return; // the rest only needs to run once a minute
   lastMinuteCheck = minuteKey;
+  if (isIOS() && !$('.overlay') && !!$('.clock-bar') !== clockBehind()) render();
   const mine = clockIn(myTz(), now), hm = mine.hm, today = mine.date; // my own clock, wherever this device is
 
   for (const a of S.data.alarms) {
