@@ -303,7 +303,8 @@ function renderTimeGrid(n) {
           ${height > 46 && o.ev.location ? `<div>📍 ${esc(o.ev.location)}</div>` : ''}
           ${o.ev.readOnly ? '' : '<div class="resize"></div>'}
         </div>`).join('')}
-      ${sameDay(d, today) ? `<div class="nowline" style="top:${(today.getHours() * 60 + today.getMinutes()) / 60 * HOUR}px"></div>` : ''}
+      ${sameDay(d, today) ? `<div class="nowline" style="top:${(today.getHours() * 60 + today.getMinutes()) / 60 * HOUR}px"></div>`
+        : n > 1 && days.some(x => sameDay(x, today)) ? `<div class="nowline faint" style="top:${(today.getHours() * 60 + today.getMinutes()) / 60 * HOUR}px"></div>` : ''}
     </div>`;
   });
   return html + '</div></div>';
@@ -1475,6 +1476,6 @@ addEventListener('resize', () => { if (phone() !== wasPhone) { wasPhone = phone(
   const hj = location.hash.match(/(?:^#|&)join=([^&]+)/);
   if (hj) { sessionStorage.setItem('duocal.pendingJoin', decodeURIComponent(hj[1]).slice(0, 600)); history.replaceState(null, '', location.pathname + location.search); }
   const t = GAuth.current();
-  if (!t) return renderAuth();
+  if (!t) { if (!(r && r.error) && GAuth.quietSignIn && GAuth.quietSignIn()) return; return renderAuth(); }
   await startWith(t.email, (r && r.join) || sessionStorage.getItem('duocal.pendingJoin'));
 })();

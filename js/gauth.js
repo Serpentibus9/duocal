@@ -8,7 +8,9 @@
 //   * state:      a random one-time value; an answer that doesn't carry it is refused (stops forged sign-ins)
 //   * audience:   the pass is checked with Google to really be issued to DuoCal (stops token substitution)
 //   * no traces:  the pass is removed from the address bar/history immediately
-//   * short life: kept only in sessionStorage (gone when the app is closed), never in a cookie or the URL
+//   * short life: the pass lasts at most 1 hour and is never put in a cookie or the URL. When it runs out,
+//                 DuoCal asks Google again quietly (prompt=none): Google itself decides, using your Google
+//                 sign-in on this device, so you don't type anything. Sign out stops this.
 //   * revoke:     "Sign out" can also cancel DuoCal's access at Google
 (function (root) {
   const CFG = root.DUOCAL_CONFIG || {};
@@ -73,21 +75,33 @@
     const email = String(info.email || '').toLowerCase();
     if (!/^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,24}$/.test(email)) return { error: 'email' };
     const life = Math.min(+info.expires_in || +h.get('expires_in') || 3600, 3600);
-    sessionStorage.setItem(KEY, JSON.stringify({ token, exp: Date.now() + (life - 60) * 1000, email }));
+    localStorage.setItem(KEY, JSON.stringify({ token, exp: Date.now() + (life - 60) * 1000, email }));
     localStorage.setItem('duocal.lastEmail', email);
+    localStorage.removeItem('duocal.signedOut'); sessionStorage.removeItem('duocal.quietTry');
     return { ok: true, join: saved.join, email };
   }
 
   function current() {
     if (D) return cached && cached.exp > Date.now() ? cached : null;
-    const t = JSON.parse(sessionStorage.getItem(KEY) || 'null');
-    return t && t.exp > Date.now() ? t : null;
+    let t = null; try { t = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { }
+    if (t && !(t.exp > Date.now())) { localStorage.removeItem(KEY); t = null; } // expired passes are thrown away
+    return t;
   }
-  async function signOut({ revoke = false } = {}) {
+  async function signOut({ revoke = false, byUser = true } = {}) {
     if (D) { await D.signOut(revoke); cached = null; return; }
-    const t = JSON.parse(sessionStorage.getItem(KEY) || 'null');
+    let t = null; try { t = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { }
     if (revoke && t) await fetch('https://oauth2.googleapis.com/revoke?token=' + encodeURIComponent(t.token), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }).catch(() => { });
-    sessionStorage.removeItem(KEY);
+    localStorage.removeItem(KEY); sessionStorage.removeItem(KEY);
+    if (byUser) localStorage.setItem('duocal.signedOut', '1'); // no quiet sign-in until you sign in yourself again
   }
-  root.GAuth = { signIn, handleRedirect, current, signOut, appUrl: redirectUri, desktopInit, isDesktop: !!D };
+  // Open DuoCal without the sign-in screen: if this device signed in before (and didn't sign out),
+  // ask Google quietly once per launch. Returns true when it went to Google.
+  function quietSignIn() {
+    if (D) return false;
+    const hint = localStorage.getItem('duocal.lastEmail');
+    if (!hint || localStorage.getItem('duocal.signedOut') || sessionStorage.getItem('duocal.quietTry')) return false;
+    sessionStorage.setItem('duocal.quietTry', '1');
+    signIn({ silent: true, hint }); return true;
+  }
+  root.GAuth = { signIn, quietSignIn, handleRedirect, current, signOut, appUrl: redirectUri, desktopInit, isDesktop: !!D };
 })(window);

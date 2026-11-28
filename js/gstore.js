@@ -52,7 +52,7 @@
     let r;
     try { r = await fetch(url, { method, headers: { Authorization: 'Bearer ' + t.token, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store', referrerPolicy: 'no-referrer' }); }
     catch { const e = new Error("Can't reach Google — check the internet connection"); e.offline = true; throw e; }
-    if (r.status === 401) { await GAuth.signOut(); throw new AuthNeeded(); }
+    if (r.status === 401) { await GAuth.signOut({ byUser: false }); throw new AuthNeeded(); }
     if (r.status === 204) return {};
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { const e = new Error('Google Calendar: ' + String((j.error && j.error.message) || r.status).slice(0, 160)); e.status = r.status; throw e; }
@@ -725,7 +725,8 @@
       if (c.owner) await gapi('DELETE', cal(c.id)).catch(() => { });
       else await gapi('DELETE', '/users/me/calendarList/' + encodeURIComponent(c.id)).catch(() => { });
     }
-    for (const k of Object.keys(localStorage)) if (k.startsWith('duocal.') && k !== 'duocal.theme') localStorage.removeItem(k);
+    const keep = ['duocal.theme', 'duocal.gtoken', 'duocal.lastEmail', 'duocal.appVersion']; // stay signed in
+    for (const k of Object.keys(localStorage)) if (k.startsWith('duocal.') && !keep.includes(k)) localStorage.removeItem(k);
     const me = S.me; S = blank(); S.me = me; // still signed in as the same person
   }
 
