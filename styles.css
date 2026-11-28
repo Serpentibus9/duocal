@@ -112,8 +112,10 @@ html[data-theme="dark"] input, html[data-theme="dark"] select { color-scheme: da
   input::-webkit-date-and-time-value { text-align: left; }
 }
 .clock-bar { position: fixed; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 25; display: flex; gap: 8px; padding: 8px; border-radius: 18px; background: var(--panel-solid); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.25); }
-.clock-bar #clock-send { flex: 1; justify-content: center; }
+.clock-btns { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.clock-btns .btn { width: 100%; justify-content: center; }
 .shell:has(+ .clock-bar) .fab { bottom: calc(146px + env(safe-area-inset-bottom)); }
+.shell:has(+ .clock-bar .clock-btns > :nth-child(2)) .fab { bottom: calc(196px + env(safe-area-inset-bottom)); }
 .shell:has(+ .clock-bar) .page { padding-bottom: 160px; }
 @media (min-width: 760px) { .clock-bar { left: auto; right: 20px; bottom: 20px; max-width: 420px; } }
 .btn.wide { width: 100%; justify-content: center; margin-top: 4px; }

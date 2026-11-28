@@ -143,9 +143,13 @@ function render() {
       </div>
     </aside>
     <main class="main ${S.page === 'calendar' ? 'cal' : ''}">${renderPage()}</main>
-  </div>${clockBehind() ? `<div class="clock-bar"><button class="btn primary" id="clock-send">${ICON.alarm} Put my alarms on iPhone Clock</button><button class="btn icon" id="clock-later" aria-label="Not now">✕</button></div>` : ''}`;
+  </div>${clockBehind() || partnerClockBehind() ? `<div class="clock-bar"><div class="clock-btns">
+    ${clockBehind() ? `<button class="btn primary" id="clock-send">${ICON.alarm} Put my alarms on iPhone Clock</button>` : ''}
+    ${partnerClockBehind() ? `<button class="btn ${clockBehind() ? '' : 'primary'}" id="clock-send-p">${ICON.alarm} Send to ${esc(partner().name)}'s iPhone Clock</button>` : ''}
+    </div><button class="btn icon" id="clock-later" aria-label="Not now">✕</button></div>` : ''}`;
   $('#clock-send') && ($('#clock-send').onclick = sendToClock);
-  $('#clock-later') && ($('#clock-later').onclick = () => { sessionStorage.setItem('duocal.clockLater', clockSig().join('|')); render(); });
+  $('#clock-send-p') && ($('#clock-send-p').onclick = sendToPartnerClock);
+  $('#clock-later') && ($('#clock-later').onclick = () => { for (const m of S.data.members) sessionStorage.setItem('duocal.clockLater.' + m.id, clockSig(m.id).join('|')); render(); });
   $$('[data-page]').forEach(b => b.onclick = () => { S.page = b.dataset.page; localStorage.setItem('duocal.page', S.page); render(); });
   const bind = { calendar: bindCalendar, alarms: bindAlarms, sleep: bindSleep, counters: bindCounters, transfer: bindTransfer, settings: bindSettings }[S.page];
   bind && bind();
@@ -676,7 +680,8 @@ function renderAlarms() {
     <div class="row"><h1>Alarms</h1><div class="spacer"></div><button class="btn primary" id="add-alarm">+ New alarm</button></div>
     <div class="card" style="text-align:center"><div class="clock" data-clock="hms"></div><div class="muted" data-clock="date"></div></div>
     ${isIOS() ? `<div class="card to-clock"><button class="btn primary wide" id="to-clock">${ICON.alarm} Send my alarms to iPhone Clock</button>
-      <p class="muted small" style="margin:8px 0 0">Real alarms that ring even on silent. Uses your <b>DuoCal Alarms</b> shortcut (set it up once: see the guide). Sends the next 24 hours.</p></div>` : ''}
+      ${partner() ? `<button class="btn wide" id="to-clock-p" style="margin-top:8px">${ICON.alarm} Send to ${esc(partner().name)}'s iPhone Clock</button>` : ''}
+      <p class="muted small" style="margin:8px 0 0">Real alarms that ring even on silent, for the next 24 hours, using the <b>DuoCal Alarms</b> shortcut. For ${partner() ? esc(partner().name) : 'your partner'}, Messages opens with a text to send; their iPhone then puts the alarms on their Clock by itself.</p></div>` : ''}
     ${s.wakeAlarm ? `<h2>From your sleep schedule</h2><div class="card alarm-card"><div style="flex:1"><div class="time">${fmtTime(parseLocal('2000-01-01', s.waketime))}</div><b>Wake up</b> <span class="muted small">· every day · change it on the Sleep page</span></div></div>` : ''}
     <h2>Yours</h2>
     <div class="grid">${mine.filter(a => a.forUser === me().id).map(card).join('') || '<p class="muted">No alarms yet.</p>'}</div>
@@ -687,50 +692,70 @@ function renderAlarms() {
 function bindAlarms() {
   $('#add-alarm').onclick = () => openAlarmEditor(null);
   $('#to-clock') && ($('#to-clock').onclick = sendToClock);
+  $('#to-clock-p') && ($('#to-clock-p').onclick = sendToPartnerClock);
   $$('[data-edit-alarm]').forEach(el => el.onclick = () => openAlarmEditor(S.data.alarms.find(a => a.id === el.dataset.editAlarm)));
   $$('[data-toggle-alarm]').forEach(el => el.onclick = async () => {
     const a = S.data.alarms.find(x => x.id === el.dataset.toggleAlarm);
     await api('/api/alarms/' + a.id, { method: 'PUT', body: { enabled: !a.enabled } }); await reload(); render();
   });
 }
-// ---- iPhone Clock: hand my next-24-hour alarms to the "DuoCal Alarms" shortcut ----
+// ---- iPhone Clock: hand someone's next-24-hour alarms to their "DuoCal Alarms" shortcut ----
+// Mine: DuoCal runs my shortcut directly. My partner's: DuoCal opens Messages with a text to them that
+// starts with "DuoCal alarms"; their iPhone automation runs their shortcut with that text, by itself.
 const isIOS = () => !GAuth.isDesktop && (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
-function myNextAlarms(now = new Date()) {
-  const tz = myTz(), out = [];
-  const list = S.data.alarms.filter(a => a.enabled && a.forUser === me().id).map(a => ({ label: a.label || 'Alarm', a }));
-  const s = me().settings;
-  if (s.wakeAlarm) list.push({ label: 'Wake up', a: { time: s.waketime, days: [0, 1, 2, 3, 4, 5, 6] } });
+const NL = String.fromCharCode(10);
+function nextAlarmsFor(pid, now = new Date()) {
+  const m = member(pid); if (!m) return [];
+  const tz = tzOf(pid), out = [];
+  const list = S.data.alarms.filter(a => a.enabled && a.forUser === pid).map(a => ({ label: a.label || 'Alarm', a }));
+  const s = m.settings || {};
+  if (s.wakeAlarm && s.waketime) list.push({ label: 'Wake up', a: { time: s.waketime, days: [0, 1, 2, 3, 4, 5, 6] } });
   for (let k = 0; k < 2; k++) {
     const day = clockIn(tz, new Date(now.getTime() + k * DAY));
     for (const { label, a } of list) {
       if (!alarmOnDay(a, day.date, day.dow)) continue;
-      const [y, m, d] = day.date.split('-').map(Number), [hh, mm] = a.time.split(':').map(Number);
-      const at = Recur.wallCal(tz).fromWall(new Date(Date.UTC(y, m - 1, d, hh, mm)));
+      const [y, mo, d] = day.date.split('-').map(Number), [hh, mm] = a.time.split(':').map(Number);
+      const at = Recur.wallCal(tz).fromWall(new Date(Date.UTC(y, mo - 1, d, hh, mm)));
       if (at > now && at - now <= DAY) out.push({ label: String(label).replace(/\s+/g, ' ').slice(0, 40), at });
     }
   }
   return out.sort((x, y) => x.at - y.at).slice(0, 20);
 }
-// One line per alarm, e.g. "Pills — November 28, 2026 at 7:30 AM" (the shortcut finds the date in each line)
+const myNextAlarms = now => nextAlarmsFor(me().id, now);
+// One line per alarm, written on that person's clock, e.g. "Pills — November 28, 2026 at 7:30 AM"
+// (their shortcut finds the date in each line)
+const clockLines = (pid, now) => nextAlarmsFor(pid, now).map(x => x.label + ' — ' + x.at.toLocaleString('en-US', { timeZone: tzOf(pid), month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }));
 function clockShortcutUrl(now = new Date()) {
-  const lines = myNextAlarms(now).map(x => x.label + ' — ' + x.at.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }));
-  return 'shortcuts://run-shortcut?name=' + encodeURIComponent('DuoCal Alarms') + '&input=text&text=' + encodeURIComponent(lines.join(String.fromCharCode(10)) || 'none');
+  return 'shortcuts://run-shortcut?name=' + encodeURIComponent('DuoCal Alarms') + '&input=text&text=' + encodeURIComponent(clockLines(me().id, now).join(NL) || 'none');
 }
-// Is the iPhone Clock missing something? (a new or changed alarm, or tomorrow's repeat, or one that was removed)
-const clockSig = () => S.data ? myNextAlarms().map(x => x.label + '@' + x.at.getTime()) : [];
-const CLOCK_KEY = () => 'duocal.clockSent.' + me().id;
-function clockBehind() {
-  if (!isIOS() || !S.data) return false;
-  const now = Date.now(), cur = clockSig();
-  let sent = []; try { sent = JSON.parse(localStorage.getItem(CLOCK_KEY()) || '[]'); } catch { }
-  if (sessionStorage.getItem('duocal.clockLater') === cur.join('|')) return false; // "not now" for this exact set
+function partnerClockText(now = new Date()) { return 'DuoCal alarms' + NL + (clockLines(partner().id, now).join(NL) || 'none'); }
+const partnerClockUrl = () => 'sms:&body=' + encodeURIComponent(partnerClockText());
+// Is someone's iPhone Clock missing something? (a new or changed alarm, tomorrow's repeat, or one that was removed)
+const clockSig = (pid = me().id) => S.data && member(pid) ? nextAlarmsFor(pid).map(x => x.label + '@' + x.at.getTime()) : [];
+const CLOCK_KEY = (pid = me().id) => pid === me().id ? 'duocal.clockSent.' + pid : 'duocal.clockSentFor.' + pid;
+function clockBehind(pid = me().id) {
+  if (!isIOS() || !S.data || !member(pid)) return false;
+  const now = Date.now(), cur = clockSig(pid);
+  let sent = []; try { sent = JSON.parse(localStorage.getItem(CLOCK_KEY(pid)) || '[]'); } catch { }
+  if (sessionStorage.getItem('duocal.clockLater.' + pid) === cur.join('|')) return false; // "not now" for this exact set
   const future = sent.filter(k => +k.split('@').pop() > now);
   return cur.some(k => !sent.includes(k)) || future.some(k => !cur.includes(k));
+}
+// Only offer to update my partner's Clock once I've set an alarm for them (they handle their own otherwise)
+function partnerClockBehind() {
+  const p = partner(); if (!p || !clockBehind(p.id)) return false;
+  return S.data.alarms.some(a => a.forUser === p.id && a.createdBy === me().id) || !!localStorage.getItem(CLOCK_KEY(p.id));
 }
 function sendToClock() {
   localStorage.setItem(CLOCK_KEY(), JSON.stringify(clockSig()));
   location.href = clockShortcutUrl();
   setTimeout(render, 500); // the bar goes away
+}
+function sendToPartnerClock() {
+  const p = partner();
+  localStorage.setItem(CLOCK_KEY(p.id), JSON.stringify(clockSig(p.id)));
+  location.href = partnerClockUrl();
+  setTimeout(render, 500);
 }
 const EVERY_LABEL = { '': 'Once', '1d': 'Every day', '2d': 'Every 2 days', '3d': 'Every 3 days', '1w': 'Every week', '1m': 'Every month', '1y': 'Every year' };
 // A wheel you can scroll (like the iPhone clock) plus a box you can type in. Both stay in sync.
@@ -1461,7 +1486,7 @@ function tick() {
   const minuteKey = `${fmtDateInput(now)} ${fmtTimeInput(now)}`;
   if (minuteKey === lastMinuteCheck) return; // the rest only needs to run once a minute
   lastMinuteCheck = minuteKey;
-  if (isIOS() && !$('.overlay') && !!$('.clock-bar') !== clockBehind()) render();
+  if (isIOS() && !$('.overlay') && !!$('.clock-bar') !== (clockBehind() || partnerClockBehind())) render();
   const mine = clockIn(myTz(), now), hm = mine.hm, today = mine.date; // my own clock, wherever this device is
 
   for (const a of S.data.alarms) {
